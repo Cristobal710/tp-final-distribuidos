@@ -39,4 +39,47 @@ Podemos intentar manejar unicamente información en este gateway (de entrada y d
 Vamos a usar gateways stateless que puedan recibir información de cualquier cliente y enviar información a cualquier cliente. La idea de no tener estado es que sean lo más escalables posibles. Si no tenemos un estado, podemos escalar de la forma más simple posible. 
 La idea de escalar es no perder disponibilidad en ningún momento. En contraposición, vamos a tener una complejidad mayor en el procesamiento de los datos, porque pueden llegar de cualquier gateway y no hay una información compartida entre ellos y la parte del sistema que se encarga de procesar la información.
 
-[Diagrama: Punto de entrada y salida del sistema](diagramas/punto_de_entrada_gateways.md)
+# Diagrama: Punto de entrada y salida del sistema
+
+## ida: recibir request de un cliente
+
+```mermaid
+flowchart LR
+    C1(["Cliente A"]) --> QIN
+    C2(["Cliente B"]) --> QIN
+    QIN[["Cola de entrada<br/>compartida"]] --> GWS
+
+    subgraph GWS["Gateways stateless (N instancias)"]
+        G1["Gateway 1"]
+        G2["Gateway 2"]
+        GN["Gateway N"]
+    end
+
+    GWS --> PROC{{"Procesamiento de datos"}}
+
+    classDef pendiente stroke-dasharray: 5 5
+    class PROC pendiente
+```
+
+## vuelta: enviar resultados a medida que van llegando
+
+```mermaid
+flowchart RL
+    PROC{{"Procesamiento de datos"}} --> RES["Resultados"]
+    RES --> GWS
+
+    subgraph GWS["Gateways stateless (N instancias)"]
+        G1["Gateway 1"]
+        G2["Gateway 2"]
+        GN["Gateway N"]
+    end
+
+    GWS --> C1(["Cliente A"])
+    GWS --> C2(["Cliente B"])
+
+    classDef pendiente stroke-dasharray: 5 5
+    class PROC pendiente
+```
+
+Aca se muestra una primera idea de como se vería el sistema de entrada del sistema. Si bien se muestran 2 clientes A y B, esto obviamente escalaría a N clientes que deseen utilizar el sistema.
+Al no tener una decisión tomada con respecto a como se verá el sistema con respecto a procesar esta información, de momento no se lo diagramó, esto es lo próximo a realizar.
