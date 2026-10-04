@@ -83,3 +83,46 @@ flowchart RL
 
 Aca se muestra una primera idea de como se vería el sistema de entrada del sistema. Si bien se muestran 2 clientes A y B, esto obviamente escalaría a N clientes que deseen utilizar el sistema.
 Al no tener una decisión tomada con respecto a como se verá el sistema con respecto a procesar esta información, de momento no se lo diagramó, esto es lo próximo a realizar.
+
+# Requisitos Funcionales
+
+## 1 - Url y fecha de modificación para artículos escritos en inglés hasta 2020 inclusive
+
+El sistema debe soportar multiples clientes requiriendo esta informacion. 
+La primer solucion que uno puede estar tentado de programar es crear un worker por cliente y manejar las conexiones en paralelo. Esta propuesta escala pobremente ante multiples clientes, haciendo lecturas innecesarias de memoria y stremeando informacion repetida.
+
+Se propone un nodo con N workers, que se encargaran de leer la informacion, filtrar las columnas y registros necesarios y publicar la informacion en un RabbitMQ Stream
+
+Todos los clientes podran subscribirse al stream, leer los mismos datos (que el productor solo tuvo que generar una vez en un dado tiempo X)
+
+El unico drawback es que eventualmente el nodo deberia loopear y volver a leer/procesar la informacion para los clientes que lleguen despues de que el primer dato streameado muera en el Stream.
+
+# Diagrama: Diseño del primer requisito funcional
+
+Los workers de un mismo nodo leen en distintos puntos, aplican filtros y publican mensajes en una cola Stream compartida. Múltiples consumidores leen los mensajes de ese Stream.
+
+```mermaid
+flowchart LR
+    DB[("Base de datos")]
+
+    subgraph NODO["Nodo productor (N workers)"]
+        W1["Worker 1"]
+        W2["Worker 2"]
+        WN["Worker N"]
+    end
+
+    DB -->|Lectura| W1
+    DB -->|Lectura| W2
+    DB -->|Lectura| WN
+
+    W1 -->|Publicación| STREAM
+    W2 -->|Publicación| STREAM
+    WN -->|Publicación| STREAM
+    STREAM[["Cola Stream<br/>compartida"]]
+
+    STREAM -->|Consumo| C1["Consumidor 1"]
+    STREAM -->|Consumo| C2["Consumidor 2"]
+    STREAM -->|Consumo| CM["Consumidor M"]
+```
+
+
