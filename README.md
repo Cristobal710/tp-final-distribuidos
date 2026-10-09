@@ -82,47 +82,123 @@ flowchart RL
 ```
 
 Aca se muestra una primera idea de como se vería el sistema de entrada del sistema. Si bien se muestran 2 clientes A y B, esto obviamente escalaría a N clientes que deseen utilizar el sistema.
-Al no tener una decisión tomada con respecto a como se verá el sistema con respecto a procesar esta información, de momento no se lo diagramó, esto es lo próximo a realizar.
+Los flujos de procesamiento de cada consulta se describen en la sección siguiente.
 
 # Requisitos Funcionales
 
-## 1 - Url y fecha de modificación para artículos escritos en inglés hasta 2020 inclusive
+El cliente establece una conexion con el servicio, declara que tipo de consulta debe procesar como parte del handshake y empieza a leer el archivo en memoria. Debera agrupar las filas crudas en batches. 
+La lectura del archivo y la formación de los batches de entrada son responsabilidad del cliente.
 
-El sistema debe soportar multiples clientes requiriendo esta informacion. 
-La primer solucion que uno puede estar tentado de programar es crear un worker por cliente y manejar las conexiones en paralelo. Esta propuesta escala pobremente ante multiples clientes, haciendo lecturas innecesarias de memoria y stremeando informacion repetida.
+Según la query establecida a consultar, el gateway redirije los mensajes del cliente a la queue de procesamiento correcta.
 
-Se propone un nodo con N workers, que se encargaran de leer la informacion, filtrar las columnas y registros necesarios y publicar la informacion en un RabbitMQ Stream
+Se detectan las siguientes entidades de computo independientes entre si:
 
-Todos los clientes podran subscribirse al stream, leer los mismos datos (que el productor solo tuvo que generar una vez en un dado tiempo X)
+## Filter 
+Será el grupo de nodos encargados de: 
+* Recibir batches de rows crudas.
+* Aplicar el filtro (requerido por la consulta) sobre las filas recibidas.
+* Eliminar las columnas innecesarias.
+* Direccionar el resultante a la queue correcta.
 
-El unico drawback es que eventualmente el nodo deberia loopear y volver a leer/procesar la informacion para los clientes que lleguen despues de que el primer dato streameado muera en el Stream.
+## Text Processor
+Será el grupo de nodos encargados de:
+* Recibir batches de rows filtradas.
+* Filtrar Stop Words.
+* Construir Set Parciales de palabras unicas.
+* Construir Sumas Parciales de palabras totales.
 
-# Diagrama: Diseño del primer requisito funcional
+## Aggregator
+Será el grupo de nodos encargados de:
+* Unificar Set Parciales
+* Unificar Sumas Parciales
 
-Los workers de un mismo nodo leen en distintos puntos, aplican filtros y publican mensajes en una cola Stream compartida. Múltiples consumidores leen los mensajes de ese Stream.
+## Joinner
+Será el grupo de nodos encargados de:
+* Unificar los resultados los procesamientos para entregar al Gateway el resultado final
+* Buscar las fotos en caso necesario
+
+# Flujos Esperados
+## 1. 
+### Url y fecha de modificación para artículos escritos en inglés hasta 2020 inclusive.
 
 ```mermaid
 flowchart LR
-    DB[("Base de datos")]
+    C1(["Cliente A"]) --> QIN
+    C2(["Cliente B"]) --> QIN
+    QIN[["Cola de entrada<br/>"]] --> GWS_IN
 
-    subgraph NODO["Nodo productor (N workers)"]
-        W1["Worker 1"]
-        W2["Worker 2"]
-        WN["Worker N"]
+    subgraph GWS_IN["Gateways stateless (N instancias)"]
+        G1["Gateway 1"]
+        G2["Gateway 2"]
+        GN["Gateway N"]
     end
 
-    DB -->|Lectura| W1
-    DB -->|Lectura| W2
-    DB -->|Lectura| WN
+    GWS_IN --> QF[["Cola FIFO<br/>"]]
 
-    W1 -->|Publicación| STREAM
-    W2 -->|Publicación| STREAM
-    WN -->|Publicación| STREAM
-    STREAM[["Cola Stream<br/>compartida"]]
+    subgraph FILTERS["Filters (N instancias)"]
+        F1["Filter 1"]
+        F2["Filter 2"]
+        FN["Filter N"]
+    end
 
-    STREAM -->|Consumo| C1["Consumidor 1"]
-    STREAM -->|Consumo| C2["Consumidor 2"]
-    STREAM -->|Consumo| CM["Consumidor M"]
+    QF --> F1
+    QF --> F2
+    QF --> FN
+
+    F1 --> QR
+    F2 --> QR
+    FN --> QR
+
+    QR[["Cola de resultados<br/>"]] --> Gateways
+
 ```
 
+## 2. 
+### Nombre, url e imágen (bytes) de artículos escritos hasta 2020 inclusive que incluyan “biography” o “biographie” entre sus secciones.
 
+```mermaid
+flowchart LR
+    C1(["Cliente A"]) --> QIN
+    C2(["Cliente B"]) --> QIN
+    QIN[["Cola de entrada<br/>"]] --> GWS_IN
+
+    subgraph GWS_IN["Gateways stateless (N instancias)"]
+        G1["Gateway 1"]
+        G2["Gateway 2"]
+        GN["Gateway N"]
+    end
+
+    GWS_IN --> QF[["Cola FIFO<br/>"]]
+
+    subgraph FILTERS["Filters (N instancias)"]
+        F1["Filter 1"]
+        F2["Filter 2"]
+        FN["Filter N"]
+    end
+
+    QF --> F1
+    QF --> F2
+    QF --> FN
+
+    F1 --> QJ
+    F2 --> QJ
+    FN --> QJ
+
+    QJ[["Cola FIFO<br/>"]]
+
+    subgraph JOINNERS["Joinners (N instancias)"]
+        J1["Joinner 1"]
+        J2["Joinner 2"]
+        JN["Joinner N"]
+    end
+
+    QJ --> J1
+    QJ --> J2
+    QJ --> JN
+
+    J1 --> QR
+    J2 --> QR
+    JN --> QR
+
+    QR[["Cola de resultados<br/>"]] --> Gateways
+```
