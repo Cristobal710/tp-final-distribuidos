@@ -39,8 +39,6 @@ Podemos intentar manejar unicamente información en este gateway (de entrada y d
 Vamos a usar gateways stateless que puedan recibir información de cualquier cliente y enviar información a cualquier cliente. La idea de no tener estado es que sean lo más escalables posibles. Si no tenemos un estado, podemos escalar de la forma más simple posible. 
 La idea de escalar es no perder disponibilidad en ningún momento. En contraposición, vamos a tener una complejidad mayor en el procesamiento de los datos, porque pueden llegar de cualquier gateway y no hay una información compartida entre ellos y la parte del sistema que se encarga de procesar la información.
 
-> **Agrego (Mateo):** Podemos hacer que, como parte del protocolo, el cliente deba pedir una IP a un nodo y que este balancee entre los diferentes gateways.
-
 # Diagrama: Punto de entrada y salida del sistema
 
 ## ida: recibir request de un cliente
@@ -84,8 +82,6 @@ flowchart RL
 ```
 
 Aca se muestra una primera idea de como se vería el sistema de entrada del sistema. Si bien se muestran 2 clientes A y B, esto obviamente escalaría a N clientes que deseen utilizar el sistema.
-
-> **Agrego (Mateo):** Así quedarían la ida y la vuelta si el cliente primero le pide una IP a un nodo balanceador y después se conecta directo al gateway que le asignaron.
 
 ### ida (con nodo balanceador)
 
@@ -142,10 +138,8 @@ Los flujos de procesamiento de cada consulta se describen en la sección siguien
 
 # Requisitos Funcionales
 
-El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 6 columnas que usan las consultas: `name`, `url`, `date_modified`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
+El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 6 columnas que usan las consultas: `name`, `url`, `date_created`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
 La lectura del archivo y la formación de los batches de entrada son responsabilidad del cliente.
-
-> **Agrego (Mateo):** Esto también podría resolverse dentro del sistema. Las dos opciones están en el apartado "Responsabilidad de leer el archivo y armar los batches", más abajo.
 
 El sistema tiene que responder las 5 consultas a la vez sobre el mismo archivo. El gateway reenvía cada batch que recibe a los clasificadores, que lo reparten entre las 5 consultas (ver "Filtrado de entrada"), y cada flujo procesa los datos en paralelo. Cada resultado indica a qué consulta corresponde, y el cliente los va recibiendo a medida que cada consulta termina.
 
@@ -176,8 +170,6 @@ Será el grupo de nodos encargados de:
 * Buscar las fotos en caso necesario
 
 ## Responsabilidad de leer el archivo y armar los batches
-
-> **Agrego (Mateo):** Hay dos formas de repartir esta responsabilidad. Falta decidir cuál usamos.
 
 ### Opción 1: la responsabilidad es del cliente
 
@@ -233,13 +225,11 @@ flowchart LR
 
 # Filtrado de entrada
 
-> **Agrego (Mateo):** Propuesta para el tramo que va desde que un batch entra al gateway hasta que se reparte entre las consultas. La idea es filtrar y recortar los datos lo antes posible, para no mandar de más.
-
 ## Dataset
 
 Usamos el dataset [Wikipedia Structured Contents](https://www.kaggle.com/datasets/wikimedia-foundation/wikipedia-structured-contents) de Kaggle:
 
-* Tiene solo artículos en inglés (7.597.149) y en francés (2.871.732). Todo artículo es de uno de los dos idiomas, así que el idioma no se filtra: es una etiqueta que se lee de la url (`en.wikipedia` o `fr.wikipedia`).
+* Tiene solo artículos en inglés (7.597.149) y en francés (2.871.732). Todo artículo es de uno de los dos idiomas, así que el idioma no se filtra: es una etiqueta que se lee de la url (`en.wikipedia` o `fr.wikipedia`). Hay que filtrar por las dudas.
 * Viene en Parquet, partido en 112 shards, y pesa 44,42 GiB en total.
 * Las consultas solo usan 6 columnas: `name`, `url`, `date_modified`, `abstract`, `sections` e `image.content_url`. Las más pesadas (`tables`, `references`, `infoboxes`) no las usa ninguna.
 
@@ -334,8 +324,6 @@ Ningún nodo le manda mensajes directamente a otro. Todos los exchanges son dire
 No usamos exchanges topic ni fanout. Topic serviría para que cada cola elija con un patrón qué mensajes quiere, pero el clasificador ya decide qué publica y para quién. Fanout serviría para avisar a todos, y eso ya se resuelve conectando varias colas con la misma clave. Con un solo tipo de exchange, el middleware queda más simple.
 
 # Procesamiento de las consultas
-
-> **Agrego (Mateo):** Propuesta para cada consulta, desde que sale del exchange de entrada hasta que llega a la cola de resultados. En cada diagrama, las otras consultas se agrupan en un solo nodo punteado.
 
 ## Q1
 
@@ -577,89 +565,3 @@ flowchart LR
 ```
 
 Los nodos con estado (Contador de palabras, Join Q3, Top 20 final, Promedio y Comparador) necesitan saber cuándo terminaron los datos de un cliente para poder emitir. Eso depende del mecanismo de EOF, que se describe aparte.
-
-# Flujos Esperados
-## 1. 
-### Url y fecha de modificación para artículos escritos en inglés hasta 2020 inclusive.
-
-```mermaid
-flowchart LR
-    C1(["Cliente A"]) --> QIN
-    C2(["Cliente B"]) --> QIN
-    QIN[["Cola de entrada<br/>"]] --> GWS_IN
-
-    subgraph GWS_IN["Gateways stateless (N instancias)"]
-        G1["Gateway 1"]
-        G2["Gateway 2"]
-        GN["Gateway N"]
-    end
-
-    GWS_IN --> QF[["Cola FIFO<br/>"]]
-
-    subgraph FILTERS["Filters (N instancias)"]
-        F1["Filter 1"]
-        F2["Filter 2"]
-        FN["Filter N"]
-    end
-
-    QF --> F1
-    QF --> F2
-    QF --> FN
-
-    F1 --> QR
-    F2 --> QR
-    FN --> QR
-
-    QR[["Cola de resultados<br/>"]] --> Gateways
-
-```
-
-## 2. 
-### Nombre, url e imágen (bytes) de artículos escritos hasta 2020 inclusive que incluyan “biography” o “biographie” entre sus secciones.
-
-```mermaid
-flowchart LR
-    C1(["Cliente A"]) --> QIN
-    C2(["Cliente B"]) --> QIN
-    QIN[["Cola de entrada<br/>"]] --> GWS_IN
-
-    subgraph GWS_IN["Gateways stateless (N instancias)"]
-        G1["Gateway 1"]
-        G2["Gateway 2"]
-        GN["Gateway N"]
-    end
-
-    GWS_IN --> QF[["Cola FIFO<br/>"]]
-
-    subgraph FILTERS["Filters (N instancias)"]
-        F1["Filter 1"]
-        F2["Filter 2"]
-        FN["Filter N"]
-    end
-
-    QF --> F1
-    QF --> F2
-    QF --> FN
-
-    F1 --> QJ
-    F2 --> QJ
-    FN --> QJ
-
-    QJ[["Cola FIFO<br/>"]]
-
-    subgraph JOINNERS["Joinners (N instancias)"]
-        J1["Joinner 1"]
-        J2["Joinner 2"]
-        JN["Joinner N"]
-    end
-
-    QJ --> J1
-    QJ --> J2
-    QJ --> JN
-
-    J1 --> QR
-    J2 --> QR
-    JN --> QR
-
-    QR[["Cola de resultados<br/>"]] --> Gateways
-```
