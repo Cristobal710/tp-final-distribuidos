@@ -138,7 +138,7 @@ Los flujos de procesamiento de cada consulta se describen en la sección siguien
 
 # Requisitos Funcionales
 
-El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 6 columnas que usan las consultas: `name`, `url`, `date_created`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
+El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 7 columnas que usan las consultas: `name`, `url`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
 La lectura del archivo y la formación de los batches de entrada son responsabilidad del cliente.
 
 El sistema tiene que responder las 5 consultas a la vez sobre el mismo archivo. El gateway reenvía cada batch que recibe a los clasificadores, que lo reparten entre las 5 consultas (ver "Filtrado de entrada"), y cada flujo procesa los datos en paralelo. Cada resultado indica a qué consulta corresponde, y el cliente los va recibiendo a medida que cada consulta termina.
@@ -231,7 +231,7 @@ Usamos el dataset [Wikipedia Structured Contents](https://www.kaggle.com/dataset
 
 * Tiene solo artículos en inglés (7.597.149) y en francés (2.871.732). Todo artículo es de uno de los dos idiomas, así que el idioma no se filtra: es una etiqueta que se lee de la url (`en.wikipedia` o `fr.wikipedia`). Hay que filtrar por las dudas.
 * Viene en Parquet, partido en 112 shards, y pesa 44,42 GiB en total.
-* Las consultas solo usan 6 columnas: `name`, `url`, `date_modified`, `abstract`, `sections` e `image.content_url`. Las más pesadas (`tables`, `references`, `infoboxes`) no las usa ninguna.
+* Las consultas solo usan 7 columnas: `name`, `url`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. Las más pesadas (`tables`, `references`, `infoboxes`) no las usa ninguna.
 
 ### Tamaño de los artículos
 
@@ -251,8 +251,8 @@ Como la muestra no incluye todo el dataset, también medimos los artículos más
 Conclusiones:
 
 * Ningún artículo debería acercarse a los 16 MiB. El peor caso está en el orden de 1 a 5 MB, así que no hace falta partir artículos.
-* Un artículo promedio, con las 6 columnas, pesa unos 5 KB, y casi todo es `sections`. Por ejemplo, un batch de 1 MB lleva unos 200 artículos.
-* Con las 6 columnas sin comprimir, entran al sistema unos 50 GB en total, casi lo mismo que pesa el dataset completo comprimido.
+* Un artículo promedio, con las 7 columnas, pesa unos 5 KB, y casi todo es `sections`. Por ejemplo, un batch de 1 MB lleva unos 200 artículos.
+* Con las 7 columnas sin comprimir, entran al sistema unos 50 GB en total, casi lo mismo que pesa el dataset completo comprimido.
 
 ### Fechas
 
@@ -268,23 +268,27 @@ El enunciado filtra por artículos "escritos" hasta 2020, y el dataset tiene dos
 
 * "Escrito" corresponde a la fecha de creación. Además, Q1 pide la fecha de modificación como dato de salida, así que el enunciado trata a las dos fechas como cosas distintas.
 * Con `date_modified`, un artículo escrito en 2005 y editado el mes pasado cuenta como de 2026. Así, Q1, Q2 y el promedio de Q5 trabajarían solo sobre el 3 % de los artículos.
-* En ningún artículo la creación es posterior a la modificación. Por eso, si `date_modified` es de 2020 o antes, el artículo seguro se escribió hasta 2020, aunque no tenga `date_created`.
+**Regla para decidir el período de un artículo:**
 
-Con esa regla, los artículos quedan así:
+1. Si tiene `date_created`, se usa esa fecha.
+2. Si no tiene, se usa `date_modified`.
+3. Si no tiene ninguna de las dos, el artículo se descarta.
+
+Con esta regla, los artículos quedan así:
 
 | | Inglés | Francés | Total |
 |---|---|---|---|
-| Hasta 2020 seguro | 5.250.494 (69 %) | 1.563.482 (54 %) | 6.813.976 (65 %) |
-| Desde 2021 seguro | 1.045.123 (14 %) | 380.769 (13 %) | 1.425.892 (14 %) |
-| No se sabe (sin `date_created` y modificados desde 2021) | 1.301.532 (17 %) | 927.481 (32 %) | 2.229.013 (21 %) |
+| Hasta 2020 | 5.250.494 (69 %) | 1.563.482 (54 %) | 6.813.976 (65 %) |
+| Desde 2021 | 2.346.655 (31 %) | 1.308.250 (46 %) | 3.654.905 (35 %) |
+| Descartados | 0 | 0 | 0 |
 
-Pendiente: qué hacer con el 21 % que no se sabe. Lo estamos cruzando con el `identifier` de cada artículo, que crece con el tiempo, para ver si los que no tienen `date_created` son artículos viejos. Si usamos `date_created`, el cliente pasa a leer 7 columnas.
+En este dataset no se descarta ninguno, porque todos tienen `date_modified`. En ningún artículo la creación es posterior a la modificación, así que los que usan `date_modified` y quedan hasta 2020 están bien clasificados. Los que quedan desde 2021 pueden incluir algunos que se escribieron antes y se editaron después.
 
 ## Del gateway al exchange de entrada
 
 1. **Lectura.** Quien lee el archivo (el cliente en la opción 1, los searchers en la opción 2) carga solo las columnas que se usan y arma los batches.
 2. **Gateway.** Le agrega al batch el `client_id` y el `gateway_id` y lo deja en la cola de clasificación. No mira el contenido. Todos los mensajes que siguen llevan esos dos datos, así que no los repetimos en los diagramas.
-3. **Clasificador (sin estado, N instancias).** Toma batches de la cola de clasificación, que es compartida: cada batch lo toma una sola instancia. Para cada artículo calcula el período (`hasta_2020` o `desde_2021`, según la fecha que definamos en "Fechas") y el idioma.
+3. **Clasificador (sin estado, N instancias).** Toma batches de la cola de clasificación, que es compartida: cada batch lo toma una sola instancia. Para cada artículo calcula el período (`hasta_2020` o `desde_2021`, con la regla de "Fechas") y el idioma.
 4. **Exchange de entrada (direct).** El clasificador arma un mensaje por tipo, con solo las columnas que necesita cada grupo, y lo publica con el tipo como clave:
 
     | Clave | Columnas | Se publica para | Cola |
@@ -297,7 +301,7 @@ Pendiente: qué hacer con el 21 % que no se sabe. Lo estamos cruzando con el `id
 
 ```mermaid
 flowchart LR
-    C(["Cliente"]) -- "batch de artículos<br/>(6 columnas)" --> GW["Gateways"]
+    C(["Cliente"]) -- "batch de artículos<br/>(7 columnas)" --> GW["Gateways"]
     GW -- "batch + client_id + gateway_id" --> QCL[["Cola de clasificación<br/>(compartida)"]]
     QCL --> CL["Clasificadores<br/>(N instancias)"]
     CL -- "batches agrupados por clave" --> EXE{{"Exchange de entrada<br/>(direct)"}}
@@ -421,12 +425,12 @@ Cada clave del exchange de palabras va a un tipo de nodo distinto, y cada uno se
 
 **Contador de palabras (con estado, N shards)**
 
-Cada instancia guarda, por cliente y por palabra, `{en: sí/no, fr: sí/no, artículos: n}`. Con cada entrada que llega suma los artículos y marca los idiomas. Cuando terminaron los datos del cliente:
+Mientras no terminaron los datos del cliente, escribe cada entrada que recibe al final de un archivo en disco, uno por cliente, y le hace ack al mensaje recién cuando la escribió. Cuando terminaron los datos del cliente, lee el archivo y junta las entradas por palabra en `{en: sí/no, fr: sí/no, artículos: n}`: suma los artículos y marca los idiomas. Después:
 
 * **Para Q3:** publica las palabras que tienen `en` y `fr` marcados con la clave `join_q3.<j>`, donde `j = hash(client_id)` módulo la cantidad de instancias del Join Q3. Como puede ser una lista larga, la manda en batches, y al final manda un aviso de que ese shard terminó. Si no tiene palabras compartidas, manda solo el aviso.
 * **Para Q4:** calcula su top 20 local y lo publica con la clave `top20.<t>`, calculada igual. Si no tiene palabras, publica un top vacío, así el Top 20 final sabe que ese shard terminó.
 
-Después borra el estado de ese cliente.
+Después borra el archivo de ese cliente.
 
 **Promedio (con estado, repartido por cliente)**
 
@@ -442,6 +446,8 @@ flowchart LR
     QJ3 --> J3["Join Q3"]
     WC -- "top20.t: top 20 local<br/>por hash(client_id)" --> QTOP[["Colas top20.t<br/>(una por instancia)"]]
     QTOP --> TOP["Top 20 final<br/>(join Q4)"]
+    WC -. "guarda las entradas<br/>hasta el EOF del cliente" .-> DWC[("Archivo por cliente<br/>(disco)")]
+    J3 -. "guarda listas y avisos de fin<br/>hasta tener los N" .-> DJ3[("Archivo por cliente<br/>(disco)")]
 
     EXP -- "promedio.k: suma y cantidad<br/>por hash(client_id)" --> QAVG[["Colas promedio.k<br/>(una por instancia)"]]
     QAVG --> AVG["Promedio"]
@@ -451,13 +457,14 @@ flowchart LR
 
     EXP -- "comparacion: url y cantidad" --> QCMP[["Cola comparación<br/>(compartida)"]]
     QCMP --> CMP
+    CMP -. "guarda url y cantidad<br/>hasta que llega el promedio" .-> DCMP[("Archivo por cliente<br/>(disco)")]
 ```
 
 ## Q3
 
 1. El Text processor publica cada palabra en `palabras.<i>`, según su hash, con las marcas de idioma.
 2. Cada Contador de palabras marca en qué idiomas aparece cada palabra de su shard. Cuando terminan los datos del cliente, publica las que aparecen en los dos idiomas en `join_q3.<j>`, y después el aviso de fin.
-3. **Join Q3 (con estado, repartido por cliente).** A medida que recibe las listas de los shards, las reenvía a la cola de resultados. No tiene que cruzar ni ordenar nada: cada palabra está en un solo shard, así que la respuesta de Q3 es la unión de lo que mandan todos. Lo que agrega es saber cuándo terminó Q3: cuenta los avisos de fin del cliente, y cuando tiene los N, avisa una sola vez que Q3 terminó. Así el cliente no tiene que saber cuántos shards hay.
+3. **Join Q3 (con estado, repartido por cliente).** Mientras espera a los N shards, escribe cada lista y cada aviso de fin que recibe al final de un archivo en disco, uno por cliente, y le hace ack al mensaje recién cuando lo escribió. Cuando tiene los N avisos de fin, lee el archivo, publica las listas en la cola de resultados, avisa una sola vez que Q3 terminó y borra el archivo. No tiene que cruzar ni ordenar nada: cada palabra está en un solo shard, así que la respuesta de Q3 es la unión de lo que mandan todos. Lo que agrega es saber cuándo terminó Q3, así el cliente no tiene que saber cuántos shards hay.
 
 Q3 no compara artículos de a pares. Una palabra está en la respuesta si aparece en al menos un artículo en inglés y en al menos un artículo en francés, así que alcanza con la intersección de dos conjuntos: las palabras de todos los artículos en inglés y las de todos los artículos en francés. Cada artículo se mira una sola vez. El hash por palabra es lo que permite repartir esa intersección: las apariciones en inglés y en francés de una palabra llegan al mismo shard, y ese shard decide solo.
 
@@ -472,6 +479,8 @@ flowchart LR
     WC -- "join_q3.j: palabras en ambos idiomas + fin<br/>por hash(client_id)" --> QJ3[["Colas join_q3.j<br/>(una por instancia)"]]
     QJ3 --> J3["Join Q3"]
     J3 -- "Q3: palabras compartidas<br/>+ aviso de fin de Q3" --> QR[["Cola de resultados"]]
+    WC -. "guarda las entradas<br/>hasta el EOF del cliente" .-> DWC[("Archivo por cliente<br/>(disco)")]
+    J3 -. "guarda listas y avisos de fin<br/>hasta tener los N" .-> DJ3[("Archivo por cliente<br/>(disco)")]
 
     EXE -- "meta, bio" --> OTRAS["Otras consultas<br/>(Q1, Q2, Q4 y Q5)"]
     EXP -- "promedio.k, comparacion" --> OTRAS
@@ -502,6 +511,7 @@ flowchart LR
     WC -- "top20.t: top 20 local<br/>por hash(client_id)" --> QTOP[["Colas top20.t<br/>(una por instancia)"]]
     QTOP --> TOP["Top 20 final"]
     TOP -- "Q4: 20 pares (palabra, cantidad)" --> QR[["Cola de resultados"]]
+    WC -. "guarda las entradas<br/>hasta el EOF del cliente" .-> DWC[("Archivo por cliente<br/>(disco)")]
 
     EXE -- "meta, bio" --> OTRAS["Otras consultas<br/>(Q1, Q2, Q3 y Q5)"]
     EXP -- "promedio.k, comparacion" --> OTRAS
@@ -535,7 +545,7 @@ Cada instancia lee de dos colas: la cola compartida `comparacion` y su propia co
 3. Desde ese momento, compara cada artículo nuevo apenas llega, sin pasar por el disco.
 4. Da por terminado al cliente cuando tiene el promedio y además terminaron sus datos.
 
-Lo guarda en disco y no en memoria porque es lo que más espacio ocupa del sistema. Para un cliente que manda el dataset completo, son entre 1,4 y 3,6 millones de artículos desde 2021 (depende de qué hagamos con los que no tienen fecha de creación). En memoria, como tuplas de Python, serían entre 300 y 730 MB por cliente, y el consumo crecería con cada cliente simultáneo hasta que el nodo se quede sin memoria. En disco ocupan entre 80 y 200 MB por cliente, y la memoria que usa el Comparador queda fija sin importar cuántos clientes haya. Escribir y leer el archivo en orden es rápido, y no agrega una demora importante: Q5 igual no puede responder antes de que termine el archivo.
+Lo guarda en disco y no en memoria porque es lo que más espacio ocupa del sistema. Para un cliente que manda el dataset completo, son unos 3,65 millones de artículos desde 2021. En memoria, como tuplas de Python, serían unos 730 MB por cliente, y el consumo crecería con cada cliente simultáneo hasta que el nodo se quede sin memoria. En disco ocupan unos 200 MB por cliente, y la memoria que usa el Comparador queda fija sin importar cuántos clientes haya. Escribir y leer el archivo en orden es rápido, y no agrega una demora importante: Q5 igual no puede responder antes de que termine el archivo.
 
 Los archivos se borran cuando el cliente termina. Si el nodo recibe un SIGTERM, cierra los archivos abiertos antes de salir.
 
