@@ -41,49 +41,9 @@ La idea de escalar es no perder disponibilidad en ningún momento. En contraposi
 
 # Diagrama: Punto de entrada y salida del sistema
 
-## ida: recibir request de un cliente
-
-```mermaid
-flowchart LR
-    C1(["Cliente A"]) --> QIN
-    C2(["Cliente B"]) --> QIN
-    QIN[["Cola de entrada<br/>compartida"]] --> GWS
-
-    subgraph GWS["Gateways stateless (N instancias)"]
-        G1["Gateway 1"]
-        G2["Gateway 2"]
-        GN["Gateway N"]
-    end
-
-    GWS --> PROC{{"Procesamiento de datos"}}
-
-    classDef pendiente stroke-dasharray: 5 5
-    class PROC pendiente
-```
-
-## vuelta: enviar resultados a medida que van llegando
-
-```mermaid
-flowchart RL
-    PROC{{"Procesamiento de datos"}} --> RES["Resultados"]
-    RES --> GWS
-
-    subgraph GWS["Gateways stateless (N instancias)"]
-        G1["Gateway 1"]
-        G2["Gateway 2"]
-        GN["Gateway N"]
-    end
-
-    GWS --> C1(["Cliente A"])
-    GWS --> C2(["Cliente B"])
-
-    classDef pendiente stroke-dasharray: 5 5
-    class PROC pendiente
-```
-
 Aca se muestra una primera idea de como se vería el sistema de entrada del sistema. Si bien se muestran 2 clientes A y B, esto obviamente escalaría a N clientes que deseen utilizar el sistema.
 
-### ida (con nodo balanceador)
+## Ida: recibir los datos de un cliente
 
 ```mermaid
 flowchart LR
@@ -111,7 +71,7 @@ flowchart LR
     class PROC pendiente
 ```
 
-### vuelta (con nodo balanceador)
+## Vuelta: enviar resultados a medida que van llegando
 
 ```mermaid
 flowchart RL
@@ -143,43 +103,32 @@ La lectura del archivo y la formación de los batches de entrada son responsabil
 
 El sistema tiene que responder las 5 consultas a la vez sobre el mismo archivo. El gateway reenvía cada batch que recibe a los clasificadores, que lo reparten entre las 5 consultas (ver "Filtrado de entrada"), y cada flujo procesa los datos en paralelo. Cada resultado indica a qué consulta corresponde, y el cliente los va recibiendo a medida que cada consulta termina.
 
-Se detectan las siguientes entidades de computo independientes entre si:
+Se detectan las siguientes entidades de cómputo. Cada una se describe en detalle en las secciones siguientes:
 
-## Filter 
-Será el grupo de nodos encargados de: 
-* Recibir batches de rows crudas.
-* Aplicar el filtro (requerido por la consulta) sobre las filas recibidas.
-* Eliminar las columnas innecesarias.
-* Direccionar el resultante a la queue correcta.
-
-## Text Processor
-Será el grupo de nodos encargados de:
-* Recibir batches de rows filtradas.
-* Filtrar Stop Words.
-* Construir Set Parciales de palabras unicas.
-* Construir Sumas Parciales de palabras totales.
-
-## Aggregator
-Será el grupo de nodos encargados de:
-* Unificar Set Parciales
-* Unificar Sumas Parciales
-
-## Joinner
-Será el grupo de nodos encargados de:
-* Unificar los resultados los procesamientos para entregar al Gateway el resultado final
-* Buscar las fotos en caso necesario
+| Entidad | Estado | Qué hace |
+|---|---|---|
+| Gateway | sin estado | Recibe los batches del cliente, los reparte entre los clasificadores y le devuelve los resultados. |
+| Clasificador | sin estado | Decide el período y el idioma de cada artículo, recorta las columnas y lo reparte entre las consultas. Resuelve Q1. |
+| Filter biography | sin estado | Deja pasar los artículos que mencionan "biography" o "biographie" (Q2). |
+| Buscador de imágenes | sin estado | Baja la imagen de cada artículo de Q2. |
+| Text processor | sin estado | Saca las palabras únicas de cada abstract, sin stopwords, y las cuenta (Q3, Q4 y Q5). |
+| Contador de palabras | con estado | Junta, por palabra, en cuántos artículos aparece y en qué idiomas (Q3 y Q4). |
+| Join Q3 | con estado | Junta las palabras compartidas de todos los contadores (Q3). |
+| Top 20 final | con estado | Junta los tops locales y elige el top 20 (Q4). |
+| Promedio | con estado | Calcula el promedio de palabras de los artículos hasta 2020 (Q5). |
+| Comparador | con estado | Se queda con los artículos desde 2021 que superan el promedio (Q5). |
 
 ## Responsabilidad de leer el archivo y armar los batches
 
 ### Opción 1: la responsabilidad es del cliente
 
-Es lo que se describe al principio de esta sección. El cliente lee el archivo, agrupa las filas crudas en batches y se los manda al gateway. El gateway solo reenvía esos batches a las queues de las 5 consultas.
+Es lo que se describe al principio de esta sección. El cliente lee el archivo, agrupa las filas crudas en batches y se los manda al gateway. El gateway solo reenvía esos batches a los clasificadores.
 
 ```mermaid
 flowchart LR
     ARCH[("Archivo")] --> C(["Cliente<br/>arma los batches"])
     C -- "batches" --> GW["Gateway"]
-    GW --> QS[["Queues de las 5 consultas"]]
+    GW --> QS[["Colas de los clasificadores"]]
 ```
 
 #### Ventajas
@@ -194,7 +143,7 @@ flowchart LR
 
 ### Opción 2: la responsabilidad está dentro del sistema
 
-El cliente solo se conecta al gateway y pide que se procese el dataset. La lectura la hacen varios searchers dentro del sistema: cada uno obtiene una parte de los artículos con la librería del dataset de Kaggle, la deja en un batch y lo manda a la queue. Los datos no pasan por el cliente ni por el gateway.
+El cliente solo se conecta al gateway y pide que se procese el dataset. La lectura la hacen varios searchers dentro del sistema: cada uno obtiene una parte de los artículos con la librería del dataset de Kaggle, la deja en un batch y lo manda a los clasificadores. Los datos no pasan por el cliente ni por el gateway.
 
 ```mermaid
 flowchart LR
@@ -208,7 +157,7 @@ flowchart LR
     end
 
     DS[("Dataset de Kaggle<br/>(librería)")] --> SEARCHERS
-    SEARCHERS -- "batches" --> QS[["Queues de las 5 consultas"]]
+    SEARCHERS -- "batches" --> QS[["Colas de los clasificadores"]]
 ```
 
 #### Ventajas
@@ -293,11 +242,12 @@ En este dataset no se descarta ninguno, porque todos tienen `date_modified`. En 
 
     | Clave | Columnas | Se publica para | Cola |
     |---|---|---|---|
-    | `meta` | url, date_modified | hasta 2020, inglés | Cola de resultados (Q1) |
     | `bio.<i>` | name, url, sections, image_url | hasta 2020 | Cola `bio.<i>` del Filter biography i (Q2) |
     | `texto.<i>` | url, abstract, período, idioma | todos | Cola `texto.<i>` del Text processor i (Q3, Q4 y Q5) |
 
     El clasificador vuelve a agrupar los artículos por clave, así que cada mensaje que publica es un batch con una sola clave. Solo publica lo que alguien consume: por ejemplo, un artículo en francés de 2023 solo sale como `texto`.
+
+    Los artículos de Q1 no pasan por el exchange de entrada: el clasificador los publica directo en el exchange de resultados (ver "Q1" y "Salida del sistema").
 
 ```mermaid
 flowchart LR
@@ -305,12 +255,12 @@ flowchart LR
     GW -- "clasificacion.i: batch + client_id + gateway_id<br/>round-robin" --> QCL[["Colas clasificacion.i<br/>(una por instancia)"]]
     QCL --> CL["Clasificadores<br/>(N instancias)"]
     CL -- "batches agrupados por clave" --> EXE{{"Exchange de entrada<br/>(direct)"}}
+    CL -- "resultados.g: Q1 (url, date_modified)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
 
-    EXE -- "meta: url, date_modified" --> QR[["Cola de resultados"]]
     EXE -- "bio.i: name, url, sections, image_url<br/>round-robin" --> QBIO[["Colas bio.i<br/>(una por instancia)"]]
     EXE -- "texto.i: url, abstract, período, idioma<br/>round-robin" --> QTX[["Colas texto.i<br/>(una por instancia)"]]
 
-    QR --> SAL["Salida al cliente"]
+    EXR --> SAL["Salida del sistema"]
     QBIO --> P2["Procesamiento de Q2"]
     QTX --> P345["Procesamiento de Q3, Q4 y Q5"]
 
@@ -332,15 +282,16 @@ No usamos exchanges topic ni fanout. Topic serviría para que cada cola elija co
 
 ## Q1
 
-1. El clasificador publica `meta` solo para los artículos en inglés hasta 2020, con url y `date_modified`. Eso ya es la respuesta de Q1.
-2. El exchange de entrada lo deja directo en la cola de resultados. Q1 no necesita ningún nodo más.
+1. Para los artículos en inglés hasta 2020, el clasificador arma una fila con url y `date_modified`. Eso ya es la respuesta de Q1.
+2. La publica directo en el exchange de resultados, con la clave `resultados.<g>` del gateway del cliente. Q1 no necesita ningún nodo más.
 
 Los resultados de Q1 salen a medida que se clasifican los batches. No hace falta esperar al final del archivo.
 
 ```mermaid
 flowchart LR
-    EXE{{"Exchange de entrada<br/>(direct)"}}
-    EXE -- "meta: url, date_modified<br/>(inglés, hasta 2020)" --> QR[["Cola de resultados"]]
+    QCL[["Colas clasificacion.i<br/>(una por instancia)"]] --> CL["Clasificadores<br/>(N instancias)"]
+    CL -- "resultados.g: url, date_modified<br/>(inglés, hasta 2020), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    CL --> EXE{{"Exchange de entrada<br/>(direct)"}}
     EXE -- "bio.i, texto.i" --> OTRAS["Otras consultas<br/>(Q2, Q3, Q4 y Q5)"]
 
     classDef resto stroke-dasharray: 5 5
@@ -363,7 +314,7 @@ A las colas `bio.<i>` solo llegan artículos hasta 2020, con name, url, sections
 1. Toma un batch de su cola, `imagenes.<i>`.
 2. Baja la imagen de cada artículo desde `image_url`, que apunta a `upload.wikimedia.org`. Cada instancia hace varias descargas en paralelo, porque casi todo el tiempo está esperando la respuesta.
 3. Si una descarga falla o Wikimedia responde que hay demasiados pedidos, la reintenta esperando cada vez un poco más. Además, cada pedido tiene que llevar un User-Agent que identifique al sistema, con un nombre y un mail de contacto (por ejemplo, `tp-distribuidos/1.0 (mail@fi.uba.ar)`). Wikimedia lo exige y suele bloquear los pedidos que llegan con el User-Agent por defecto de las librerías.
-4. Publica en la cola de resultados name, url y los bytes de la imagen. Si el artículo no tiene imagen, o la descarga falla después de los reintentos, publica el resultado sin bytes.
+4. Publica en el exchange de resultados name, url y los bytes de la imagen. Si el artículo no tiene imagen, o la descarga falla después de los reintentos, publica el resultado sin bytes.
 
 Los resultados de Q2 salen a medida que se procesan. No hace falta esperar al final del archivo.
 
@@ -371,13 +322,13 @@ Los resultados de Q2 salen a medida que se procesan. No hace falta esperar al fi
 flowchart LR
     EXE{{"Exchange de entrada<br/>(direct)"}}
     EXE -- "bio.i: name, url, sections, image_url<br/>(hasta 2020), round-robin" --> QBIO[["Colas bio.i<br/>(una por instancia)"]]
-    EXE -- "meta, texto.i" --> OTRAS["Otras consultas<br/>(Q1, Q3, Q4 y Q5)"]
+    EXE -- "texto.i" --> OTRAS["Otras consultas<br/>(Q3, Q4 y Q5)"]
 
     QBIO --> BIO["Filter biography<br/>(N instancias)"]
     BIO -- "imagenes.i: name, url, image_url<br/>(solo si menciona biography o biographie)<br/>round-robin" --> QIMG[["Colas imagenes.i<br/>(una por instancia)"]]
     QIMG --> IMG["Buscador de imágenes<br/>(N instancias)"]
     IMG -. "GET image_url" .-> WM[("upload.wikimedia.org")]
-    IMG -- "Q2: name, url, bytes de la imagen" --> QR[["Cola de resultados"]]
+    IMG -- "resultados.g: Q2 (name, url, bytes de la imagen)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
 
     classDef resto stroke-dasharray: 5 5
     class OTRAS resto
@@ -406,7 +357,7 @@ Q3, Q4 y Q5 comparten la primera etapa, el Text processor, porque las tres cuent
 flowchart LR
     EXE{{"Exchange de entrada<br/>(direct)"}}
     EXE -- "texto.i: url, abstract, período, idioma<br/>round-robin" --> QTX[["Colas texto.i<br/>(una por instancia)"]]
-    EXE -- "meta, bio.i" --> OTRAS["Q1 y Q2"]
+    EXE -- "bio.i" --> OTRAS["Q2"]
 
     QTX --> TP["Text processor<br/>(N instancias)"]
     TP -- "palabra → (artículos, en, fr)<br/>suma y cantidad (hasta 2020)<br/>url y cantidad (desde 2021)" --> EXP{{"Exchange de palabras<br/>(direct)"}}
@@ -465,7 +416,7 @@ flowchart LR
 
 1. El Text processor publica cada palabra en `palabras.<i>`, según su hash, con las marcas de idioma.
 2. Cada Contador de palabras marca en qué idiomas aparece cada palabra de su shard. Cuando terminan los datos del cliente, publica las que aparecen en los dos idiomas en `join_q3.<j>`, y después su EOF.
-3. **Join Q3 (con estado, repartido por cliente).** Mientras espera a los N shards, escribe cada lista y cada EOF que recibe al final de un archivo en disco, uno por cliente, y le hace ack al mensaje recién cuando lo escribió. Cuando tiene el EOF de los N contadores, lee el archivo, publica las listas en la cola de resultados, manda un solo EOF de Q3 y borra el archivo. No tiene que cruzar ni ordenar nada: cada palabra está en un solo shard, así que la respuesta de Q3 es la unión de lo que mandan todos. Lo que agrega es saber cuándo terminó Q3, así el cliente no tiene que saber cuántos shards hay.
+3. **Join Q3 (con estado, repartido por cliente).** Mientras espera a los N shards, escribe cada lista y cada EOF que recibe al final de un archivo en disco, uno por cliente, y le hace ack al mensaje recién cuando lo escribió. Cuando tiene el EOF de los N contadores, lee el archivo, publica las listas en el exchange de resultados, manda un solo EOF de Q3 y borra el archivo. No tiene que cruzar ni ordenar nada: cada palabra está en un solo shard, así que la respuesta de Q3 es la unión de lo que mandan todos. Lo que agrega es saber cuándo terminó Q3, así el cliente no tiene que saber cuántos shards hay.
 
 Q3 no compara artículos de a pares. Una palabra está en la respuesta si aparece en al menos un artículo en inglés y en al menos un artículo en francés, así que alcanza con la intersección de dos conjuntos: las palabras de todos los artículos en inglés y las de todos los artículos en francés. Cada artículo se mira una sola vez. El hash por palabra es lo que permite repartir esa intersección: las apariciones en inglés y en francés de una palabra llegan al mismo shard, y ese shard decide solo.
 
@@ -479,11 +430,11 @@ flowchart LR
     QW --> WC["Contador de palabras<br/>(N shards)"]
     WC -- "join_q3.j: palabras en ambos idiomas + EOF<br/>por hash(client_id)" --> QJ3[["Colas join_q3.j<br/>(una por instancia)"]]
     QJ3 --> J3["Join Q3"]
-    J3 -- "Q3: palabras compartidas<br/>+ EOF de Q3" --> QR[["Cola de resultados"]]
+    J3 -- "resultados.g: Q3 (palabras compartidas)<br/>+ EOF de Q3, por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
     WC -. "guarda las entradas<br/>hasta el EOF del cliente" .-> DWC[("Archivo por cliente<br/>(disco)")]
     J3 -. "guarda listas y EOFs<br/>hasta tener los N" .-> DJ3[("Archivo por cliente<br/>(disco)")]
 
-    EXE -- "meta, bio.i" --> OTRAS["Otras consultas<br/>(Q1, Q2, Q4 y Q5)"]
+    EXE -- "bio.i" --> OTRAS["Otras consultas<br/>(Q2, Q4 y Q5)"]
     EXP -- "promedio.k, comparacion.i" --> OTRAS
     WC -- "top20.t" --> OTRAS
 
@@ -495,7 +446,7 @@ flowchart LR
 
 1. El Text processor publica cada palabra en `palabras.<i>`, según su hash, con la cantidad de artículos del batch en los que aparece.
 2. Cada Contador de palabras suma, para cada palabra de su shard, en cuántos artículos aparece. Cuando terminan los datos del cliente, calcula su top 20 local y lo publica en `top20.<t>`.
-3. **Top 20 final (con estado, repartido por cliente).** Recibe los tops locales del cliente. Cuando tiene el EOF de los N contadores, ordena las palabras que recibió (como mucho N×20) y publica las 20 primeras en la cola de resultados, seguidas de un solo EOF de Q4.
+3. **Top 20 final (con estado, repartido por cliente).** Recibe los tops locales del cliente. Cuando tiene el EOF de los N contadores, ordena las palabras que recibió (como mucho N×20) y publica las 20 primeras en el exchange de resultados, seguidas de un solo EOF de Q4.
 
 El resultado es exacto, porque cada palabra se contó entera en un solo shard. Si una palabra está en el top 20 global, la superan menos de 20 palabras en total, así que en su shard también la superan menos de 20. Por lo tanto, siempre aparece en el top 20 local de su shard. Esto no pasaría si cada nodo contara una parte de los artículos: ahí una palabra puede quedar afuera de todos los tops locales y aun así estar primera en el total.
 
@@ -511,10 +462,10 @@ flowchart LR
     QW --> WC["Contador de palabras<br/>(N shards)"]
     WC -- "top20.t: top 20 local<br/>por hash(client_id)" --> QTOP[["Colas top20.t<br/>(una por instancia)"]]
     QTOP --> TOP["Top 20 final"]
-    TOP -- "Q4: 20 pares (palabra, cantidad)" --> QR[["Cola de resultados"]]
+    TOP -- "resultados.g: Q4 (20 pares palabra, cantidad)<br/>+ EOF de Q4, por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
     WC -. "guarda las entradas<br/>hasta el EOF del cliente" .-> DWC[("Archivo por cliente<br/>(disco)")]
 
-    EXE -- "meta, bio.i" --> OTRAS["Otras consultas<br/>(Q1, Q2, Q3 y Q5)"]
+    EXE -- "bio.i" --> OTRAS["Otras consultas<br/>(Q2, Q3 y Q5)"]
     EXP -- "promedio.k, comparacion.i" --> OTRAS
     WC -- "join_q3.j" --> OTRAS
 
@@ -542,7 +493,7 @@ No se puede decidir ningún artículo desde 2021 hasta conocer el promedio, y el
 Cada instancia lee de dos colas propias: `comparacion.<i>` y la cola conectada con `promedio_final`.
 
 1. Mientras no llegó el promedio del cliente, escribe `(url, cantidad)` de cada artículo que recibe al final de un archivo en disco, uno por cliente. Le hace ack al mensaje recién cuando lo escribió en el archivo.
-2. Cuando llega el promedio, lee el archivo de punta a punta, publica en la cola de resultados los artículos que lo superan y borra el archivo.
+2. Cuando llega el promedio, lee el archivo de punta a punta, publica en el exchange de resultados los artículos que lo superan y borra el archivo.
 3. Desde ese momento, compara cada artículo nuevo apenas llega, sin pasar por el disco.
 4. Da por terminado al cliente cuando tiene el promedio y además recibió el EOF de todos los Text processor. Ahí manda su EOF de Q5.
 
@@ -566,9 +517,9 @@ flowchart LR
     EXP -- "comparacion.i: url y cantidad (desde 2021)<br/>round-robin" --> QCMP[["Colas comparacion.i<br/>(una por instancia)"]]
     QCMP --> CMP
     CMP -. "guarda url y cantidad<br/>hasta que llega el promedio" .-> DISK[("Archivo por cliente<br/>(disco)")]
-    CMP -- "Q5: url y cantidad<br/>(los que superan el promedio)" --> QR[["Cola de resultados"]]
+    CMP -- "resultados.g: Q5 (url y cantidad de los<br/>que superan el promedio), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
 
-    EXE -- "meta, bio.i" --> OTRAS["Otras consultas<br/>(Q1, Q2, Q3 y Q4)"]
+    EXE -- "bio.i" --> OTRAS["Otras consultas<br/>(Q2, Q3 y Q4)"]
     EXP -- "palabras.i" --> OTRAS
 
     classDef resto stroke-dasharray: 5 5
@@ -576,6 +527,43 @@ flowchart LR
 ```
 
 Los nodos con estado (Contador de palabras, Join Q3, Top 20 final, Promedio y Comparador) necesitan saber cuándo terminaron los datos de un cliente para poder emitir. Eso lo resuelve la propagación de EOF.
+
+# Salida del sistema
+
+Cada cliente está conectado a un solo gateway, el que le asignó el balanceador, así que sus resultados tienen que volver a ese gateway. Por eso no hay una cola de resultados compartida: si todos los gateways leyeran de la misma cola, un resultado del cliente A podría tomarlo un gateway que no tiene la conexión de A.
+
+1. **Exchange de resultados (direct).** Los nodos que emiten resultados publican con la clave `resultados.<g>`, donde `g` es el `gateway_id` que viaja en todos los mensajes desde la entrada:
+
+    | Nodo | Consulta | Qué publica |
+    |---|---|---|
+    | Clasificador | Q1 | url y date_modified |
+    | Buscador de imágenes | Q2 | name, url y bytes de la imagen |
+    | Join Q3 | Q3 | palabras compartidas |
+    | Top 20 final | Q4 | 20 pares (palabra, cantidad) |
+    | Comparador | Q5 | url y cantidad |
+
+    Cada mensaje lleva el `client_id`, el número de consulta (1 a 5) y un batch de resultados. Al terminar, cada nodo manda el EOF de su consulta (ver "Propagación de EOF"). Los resultados de Q2 llevan imágenes, así que sus batches también tienen un tope en bytes, igual que los de entrada.
+2. **Una cola por gateway.** Cada gateway tiene su cola, `resultados.<g>`, conectada con su clave. Solo la lee ese gateway.
+3. **Gateway.** Toma un batch de su cola, busca la conexión del `client_id` y se lo manda al cliente. Le hace ack al mensaje recién después de mandarlo. Si el cliente lee lento, los resultados esperan en RabbitMQ y no en la memoria del gateway. Además, cuenta los EOF de cada consulta. Cuando terminaron las 5, le avisa al cliente y deja de seguir a ese `client_id`.
+4. **Cliente.** Separa los resultados por número de consulta y escribe cada consulta en su propio archivo a medida que llegan. No los junta en memoria, porque la salida también es grande: por ejemplo, Q1 tiene más de 5 millones de filas.
+
+```mermaid
+flowchart LR
+    CL["Clasificadores<br/>(Q1)"] -- "resultados.g: Q1 + EOF" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    IMG["Buscador de imágenes<br/>(Q2)"] -- "resultados.g: Q2 + EOF" --> EXR
+    J3["Join Q3"] -- "resultados.g: Q3 + EOF" --> EXR
+    TOP["Top 20 final<br/>(Q4)"] -- "resultados.g: Q4 + EOF" --> EXR
+    CMP["Comparador<br/>(Q5)"] -- "resultados.g: Q5 + EOF" --> EXR
+
+    EXR -- "resultados.g1<br/>por gateway_id" --> QR1[["Cola resultados.g1<br/>(solo la lee el Gateway 1)"]]
+    EXR -- "resultados.gN<br/>por gateway_id" --> QRN[["Cola resultados.gN<br/>(solo la lee el Gateway N)"]]
+    QR1 --> G1["Gateway 1"]
+    QRN --> GN["Gateway N"]
+    G1 -- "resultados por consulta<br/>+ fin de cada consulta" --> CA(["Cliente A"])
+    GN -- "resultados por consulta<br/>+ fin de cada consulta" --> CB(["Cliente B"])
+```
+
+El balanceador no participa de la vuelta: solo asigna el gateway al principio.
 
 # Propagación de EOF
 
@@ -599,15 +587,15 @@ En la mayoría de los diagramas no dibujamos los EOF, porque viajan por las mism
 
 | Nodo | Espera EOF de | Cuando le llegan todos |
 |---|---|---|
-| Clasificador | 1 (el gateway del cliente) | manda el EOF de Q1 a la cola de resultados y su EOF a todos los Filter biography y a todos los Text processor |
+| Clasificador | 1 (el gateway del cliente) | manda el EOF de Q1 al exchange de resultados y su EOF a todos los Filter biography y a todos los Text processor |
 | Filter biography | todos los clasificadores | manda su EOF a todos los buscadores de imágenes |
-| Buscador de imágenes | todos los Filter biography | manda el EOF de Q2 a la cola de resultados |
+| Buscador de imágenes | todos los Filter biography | manda el EOF de Q2 al exchange de resultados |
 | Text processor | todos los clasificadores | manda su EOF a todos los contadores, al Promedio del cliente y a todos los comparadores |
 | Contador de palabras | todos los Text processor | lee su archivo, emite lo de Q3 y Q4 y manda su EOF al Join Q3 y al Top 20 final del cliente |
 | Join Q3 | todos los contadores | publica las listas y manda un solo EOF de Q3 |
 | Top 20 final | todos los contadores | publica el top 20 y manda un solo EOF de Q4 |
 | Promedio | todos los Text processor | calcula el promedio y lo publica a todos los comparadores (broadcast) |
-| Comparador | todos los Text processor, y además necesita el promedio | manda el EOF de Q5 a la cola de resultados |
+| Comparador | todos los Text processor, y además necesita el promedio | manda el EOF de Q5 al exchange de resultados |
 | Gateway | Q1: todos los clasificadores · Q2: todos los buscadores · Q3: 1 · Q4: 1 · Q5: todos los comparadores | cuando terminaron las 5 consultas, le avisa al cliente |
 
 El gateway aplica la misma regla que el resto de los nodos. Q1, Q2 y Q5 terminan en etapas con varias instancias, así que el gateway espera un EOF de cada una. Q3 y Q4 terminan en un nodo por cliente, que ya junta los EOF de los contadores y manda uno solo.
