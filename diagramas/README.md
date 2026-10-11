@@ -215,7 +215,7 @@ El enunciado filtra por artículos "escritos" hasta 2020, y el dataset tiene dos
 | Hasta 2020 según `date_modified` | 140.724 (1,9 %) | 176.112 (6,1 %) | 316.836 (3 %) |
 | Hasta 2020 según `date_created` | 5.109.778 (67 %) | 1.387.372 (48 %) | 6.497.150 (62 %) |
 
-* "Escrito" corresponde a la fecha de creación. Además, Q1 pide la fecha de modificación como dato de salida, así que el enunciado trata a las dos fechas como cosas distintas.
+* "Escrito" corresponde a la fecha de creación. Q1 también devuelve `date_created` junto con la url.
 * Con `date_modified`, un artículo escrito en 2005 y editado el mes pasado cuenta como de 2026. Así, Q1, Q2 y el promedio de Q5 trabajarían solo sobre el 3 % de los artículos.
 **Regla para decidir el período de un artículo:**
 
@@ -255,7 +255,7 @@ flowchart LR
     GW -- "clasificacion.i: batch + client_id + gateway_id<br/>round-robin" --> QCL[["Colas clasificacion.i<br/>(una por instancia)"]]
     QCL --> CL["Clasificadores<br/>(N instancias)"]
     CL -- "batches agrupados por clave" --> EXE{{"Exchange de entrada<br/>(direct)"}}
-    CL -- "resultados.g: Q1 (url, date_modified)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    CL -- "resultados.g: Q1 (url, date_created)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
 
     EXE -- "bio.i: name, url, sections, image_url<br/>round-robin" --> QBIO[["Colas bio.i<br/>(una por instancia)"]]
     EXE -- "texto.i: url, abstract, período, idioma<br/>round-robin" --> QTX[["Colas texto.i<br/>(una por instancia)"]]
@@ -282,7 +282,7 @@ No usamos exchanges topic ni fanout. Topic serviría para que cada cola elija co
 
 ## Q1
 
-1. Para los artículos en inglés hasta 2020, el clasificador arma una fila con url y `date_modified`. Eso ya es la respuesta de Q1.
+1. Para los artículos en inglés hasta 2020, el clasificador arma una fila con url y `date_created`. Eso ya es la respuesta de Q1.
 2. La publica directo en el exchange de resultados, con la clave `resultados.<g>` del gateway del cliente. Q1 no necesita ningún nodo más.
 
 Los resultados de Q1 salen a medida que se clasifican los batches. No hace falta esperar al final del archivo.
@@ -290,7 +290,7 @@ Los resultados de Q1 salen a medida que se clasifican los batches. No hace falta
 ```mermaid
 flowchart LR
     QCL[["Colas clasificacion.i<br/>(una por instancia)"]] --> CL["Clasificadores<br/>(N instancias)"]
-    CL -- "resultados.g: url, date_modified<br/>(inglés, hasta 2020), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    CL -- "resultados.g: url, date_created<br/>(inglés, hasta 2020), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
     CL --> EXE{{"Exchange de entrada<br/>(direct)"}}
     EXE -- "bio.i, texto.i" --> OTRAS["Otras consultas<br/>(Q2, Q3, Q4 y Q5)"]
 
@@ -536,7 +536,7 @@ Cada cliente está conectado a un solo gateway, el que le asignó el balanceador
 
     | Nodo | Consulta | Qué publica |
     |---|---|---|
-    | Clasificador | Q1 | url y date_modified |
+    | Clasificador | Q1 | url y date_created |
     | Buscador de imágenes | Q2 | name, url y bytes de la imagen |
     | Join Q3 | Q3 | palabras compartidas |
     | Top 20 final | Q4 | 20 pares (palabra, cantidad) |
