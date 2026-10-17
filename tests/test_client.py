@@ -186,7 +186,8 @@ class ClientTest(unittest.TestCase):
     def send(self, rows, max_batch_rows=50, max_batch_bytes=4000):
         gateway = FakeGateway()
         gateway.start()
-        client = Client("127.0.0.1", gateway.port, max_batch_rows=max_batch_rows, max_batch_bytes=max_batch_bytes)
+        client = Client("127.0.0.1", gateway.port, max_batch_rows, max_batch_bytes, connect_attempts=1,
+                        connect_retry_seconds=0)
         client.connect()
         client.send_rows(iter(rows))
         client.close()

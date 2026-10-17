@@ -1,5 +1,6 @@
 import logging
 import socket
+import time
 
 from common.batching import BatchBuilder
 from common.protocol import articles, external
@@ -8,8 +9,11 @@ from common.protocol import articles, external
 # Manda las filas del dataset al gateway en batches por una conexion TCP.
 class Client:
 
-    def __init__(self, server_host, server_port, max_batch_rows, max_batch_bytes):
+    def __init__(self, server_host, server_port, max_batch_rows, max_batch_bytes, connect_attempts,
+                 connect_retry_seconds):
         self._server_address = (server_host, server_port)
+        self._connect_attempts = connect_attempts
+        self._connect_retry_seconds = connect_retry_seconds
         self._max_batch_rows = max_batch_rows
         self._max_batch_bytes = max_batch_bytes
         self._socket = None
@@ -19,7 +23,15 @@ class Client:
 
     # Abre la conexion con el gateway.
     def connect(self):
-        self._socket = socket.create_connection(self._server_address)
+        for attempt in range(1, self._connect_attempts + 1):
+            try:
+                self._socket = socket.create_connection(self._server_address)
+                break
+            except ConnectionRefusedError:
+                if attempt == self._connect_attempts or self.stopped:
+                    raise
+                logging.info(f"El gateway todavía no acepta conexiones, reintento {attempt}")
+                time.sleep(self._connect_retry_seconds)
         logging.info(f"Conectado a {self._server_address[0]}:{self._server_address[1]}")
 
     # Manda todas las filas en batches y despues el aviso de fin de datos.

@@ -1,34 +1,43 @@
-x-client: &client
-  build:
-    context: ./src
-    dockerfile: client/Dockerfile
-  image: tp-client
-  environment: &client-environment
-    SERVER_HOST: gateway
-    SERVER_PORT: 5678
-
 services:
+  rabbitmq:
+    build:
+      context: ./src/rabbitmq
+      dockerfile: Dockerfile
+    image: tp-rabbitmq
+    container_name: rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 50s
+    ports:
+      - 5672:5672
+      - 15672:15672
+
+  gateway:
+    build:
+      context: ./src
+      dockerfile: gateway/Dockerfile
+    image: tp-gateway
+    container_name: gateway
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      GATEWAY_ID: 0
+
   client_0:
-    <<: *client
+    build:
+      context: ./src
+      dockerfile: client/Dockerfile
+    image: tp-client
     container_name: client_0
+    depends_on:
+      - gateway
     environment:
-      <<: *client-environment
-      DATASET_FILES_PER_PATTERN: 1
-
-  client_1:
-    <<: *client
-    container_name: client_1
-    environment:
-      <<: *client-environment
+      SERVER_HOST: gateway
       DATASET_FILE_PATTERNS: frwiki/data/frwiki_namespace_0_{:05}.parquet
-      DATASET_FILES_PER_PATTERN: 2
-
-  client_2:
-    <<: *client
-    container_name: client_2
-    environment:
-      <<: *client-environment
       DATASET_FILES_PER_PATTERN: 1
-      CLIENT_COLUMNS: ""
-      MAX_BATCH_ROWS: 500
-      MAX_BATCH_BYTES: 4194304
+      DATASET_MAX_ROWS: 10
+      MAX_BATCH_ROWS: 2
