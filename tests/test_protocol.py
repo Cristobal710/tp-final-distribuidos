@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 
 from common import safe_socket
-from common.protocol import articles, external
+from common.protocol import articles, external, internal
 from common.protocol.articles import Article
 
 
@@ -167,6 +167,47 @@ class ExternalTest(unittest.TestCase):
         self.a.sendall(external.HEADER.pack(99, 0))
         with self.assertRaises(external.ProtocolError):
             external.receive_message(self.b)
+
+
+class InternalTest(unittest.TestCase):
+
+    def test_texts_round_trip(self):
+        texts = [internal.Text("https://fr.wikipedia.org/wiki/A", "Résumé", False, "fr")]
+        msg_type, value = internal.decode(internal.encode_texts("c1", 3, texts))
+        self.assertEqual(msg_type, internal.MsgType.TEXTS)
+        self.assertEqual((value["client_id"], value["gateway_id"], value["texts"]), ("c1", 3, texts))
+
+    def test_bios_round_trip(self):
+        bios = [internal.Bio("Ada", "https://en.wikipedia.org/wiki/Ada", "[]", None)]
+        msg_type, value = internal.decode(internal.encode_bios("c1", 0, bios))
+        self.assertEqual(msg_type, internal.MsgType.BIOS)
+        self.assertEqual(value["bios"], bios)
+
+    def test_results_carry_query_and_rows(self):
+        rows = [internal.Q1Result("https://en.wikipedia.org/wiki/Ada", 1009843200000)]
+        msg_type, value = internal.decode(internal.encode_results("c1", 0, 1, rows))
+        self.assertEqual(msg_type, internal.MsgType.RESULTS)
+        self.assertEqual((value["query"], value["rows"]), (1, [["https://en.wikipedia.org/wiki/Ada", 1009843200000]]))
+
+    def test_eof_with_query_round_trip(self):
+        msg_type, value = internal.decode(internal.encode_eof("c1", 0, "classifier_1", 3, 10, 2, query=1))
+        self.assertEqual(msg_type, internal.MsgType.EOF)
+        self.assertEqual((value["processed"], value["total"], value["sent"], value["query"]), (3, 10, 2, 1))
+
+    def test_late_eof_round_trip(self):
+        msg_type, value = internal.decode(internal.encode_late_eof("c1", 0, "classifier_1", 1, 0))
+        self.assertEqual(msg_type, internal.MsgType.LATE_EOF)
+        self.assertEqual((value["origin"], value["processed"], value["sent"]), ("classifier_1", 1, 0))
+
+    def test_rejects_eof_without_counts(self):
+        message = external.serialize({"type": internal.MsgType.EOF, "client_id": "c1", "gateway_id": 0, "origin": "x"})
+        with self.assertRaises(external.ProtocolError):
+            internal.decode(message)
+
+    def test_rejects_rows_with_wrong_length(self):
+        message = external.serialize({"type": internal.MsgType.TEXTS, "client_id": "c1", "rows": [["solo url"]]})
+        with self.assertRaises(external.ProtocolError):
+            internal.decode(message)
 
 
 if __name__ == "__main__":

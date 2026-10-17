@@ -97,6 +97,17 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         if self._consumer_tag is not None:
             self._channel.stop_consuming(self._consumer_tag)
 
+    # Pide que una funcion corra en el hilo que consume, entre un mensaje y otro, desde cualquier hilo.
+    def run_in_consumer_thread(self, callback):
+        self._assert_connected()
+
+        try:
+            self._connection.add_callback_threadsafe(callback)
+        except pika.exceptions.AMQPConnectionError as e:
+            raise MessageMiddlewareDisconnectedError(
+                f"Se perdió la conexión con el middleware al programar una tarea: {e}"
+            ) from e
+
     # Publica un mensaje persistente en la cola.
     def send(self, message):
         self._assert_connected()

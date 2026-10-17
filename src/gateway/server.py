@@ -65,6 +65,7 @@ class Server:
         client_id = uuid.uuid4().hex
         logging.info(f"Cliente {client_id} conectado desde {address[0]}:{address[1]}")
         classification_queue = None
+        batches = 0
         with client_socket:
             try:
                 classification_queue = self._open_classification_queue()
@@ -72,8 +73,9 @@ class Server:
                     msg_type, value = external.receive_message(client_socket)
                     if msg_type == external.MsgType.ARTICLES:
                         self._publish_articles(classification_queue, client_id, articles.decode_batch(value))
+                        batches += 1
                     elif msg_type == external.MsgType.END_OF_DATA:
-                        self._publish_end_of_data(classification_queue, client_id)
+                        self._publish_end_of_data(classification_queue, client_id, batches)
                         return
             except ConnectionError:
                 if not self._stopping:
@@ -91,7 +93,8 @@ class Server:
         classification_queue.send(internal.encode_articles(client_id, self._gateway_id, article_list))
         logging.info(f"Cliente {client_id}: {len(article_list)} artículos publicados en clasificacion")
 
-    # Publica el fin de datos del cliente en la cola de clasificacion.
-    def _publish_end_of_data(self, classification_queue, client_id):
-        classification_queue.send(internal.encode_eof(client_id, f"gateway_{self._gateway_id}"))
-        logging.info(f"Cliente {client_id}: EOF publicado en clasificacion")
+    # Publica el fin de datos del cliente en la cola de clasificacion, con la cantidad de batches que publico.
+    def _publish_end_of_data(self, classification_queue, client_id, batches):
+        origin = f"gateway_{self._gateway_id}"
+        classification_queue.send(internal.encode_eof(client_id, self._gateway_id, origin, batches, batches, batches))
+        logging.info(f"Cliente {client_id}: EOF publicado en clasificacion ({batches} batches)")

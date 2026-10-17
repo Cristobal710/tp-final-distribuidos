@@ -27,6 +27,30 @@ services:
     environment:
       GATEWAY_ID: 0
 
+  classifier_0:
+    build:
+      context: ./src
+      dockerfile: nodes/classifier/Dockerfile
+    container_name: classifier_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CLASSIFIER_ID: 0
+      CLASSIFIER_AMOUNT: 2
+
+  classifier_1:
+    build:
+      context: ./src
+      dockerfile: nodes/classifier/Dockerfile
+    container_name: classifier_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CLASSIFIER_ID: 1
+      CLASSIFIER_AMOUNT: 2
+
   client_0:
     build:
       context: ./src
@@ -37,7 +61,5 @@ services:
       - gateway
     environment:
       SERVER_HOST: gateway
-      DATASET_FILE_PATTERNS: frwiki/data/frwiki_namespace_0_{:05}.parquet
-      DATASET_FILES_PER_PATTERN: 1
-      DATASET_MAX_ROWS: 10
-      MAX_BATCH_ROWS: 2
+      DATASET_ROWS_PER_PATTERN: 10
+      MAX_BATCH_ROWS: 100

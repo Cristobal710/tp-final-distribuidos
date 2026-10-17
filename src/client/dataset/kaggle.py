@@ -27,6 +27,11 @@ class KaggleDataset:
         self._poll_seconds = poll_seconds
         self._stop_timeout_seconds = stop_timeout_seconds
         self._download = download
+        self._skipped_patterns = set()
+
+    # Avisa al descargador que no baje mas archivos de ese patron.
+    def skip_pattern(self, pattern):
+        self._skipped_patterns.add(pattern)
 
     # Devuelve los archivos de a uno mientras baja el siguiente en otro hilo, y borra cada uno despues de usarlo.
     def files(self):
@@ -41,9 +46,9 @@ class KaggleDataset:
                     return
                 if isinstance(item, Exception):
                     raise item
-                file_path, local_path = item
+                pattern, file_path, local_path = item
                 try:
-                    yield file_path, local_path
+                    yield pattern, file_path, local_path
                 finally:
                     _remove(local_path)
         finally:
@@ -51,18 +56,20 @@ class KaggleDataset:
             self._discard(ready)
             downloader.join(timeout=self._stop_timeout_seconds)
 
-    # Baja los archivos de cada patron en orden y los deja en la cola, hasta que no haya mas o se pida parar.
+    # Baja los archivos de cada patron en orden y los deja en la cola, hasta que no haya mas, se saltee el patron o se pida parar.
     def _download_all(self, ready, stop):
         try:
             for pattern in self._file_patterns:
                 index = 0
                 while not stop.is_set() and (self._files_per_pattern == 0 or index < self._files_per_pattern):
+                    if pattern in self._skipped_patterns:
+                        break
                     file_path = pattern.format(index)
                     local_path = self._download_one(file_path)
                     if local_path is None:
                         logging.info(f"No hay más archivos de {pattern}: {index} en total")
                         break
-                    if not self._put(ready, (file_path, local_path), stop):
+                    if not self._put(ready, (pattern, file_path, local_path), stop):
                         _remove(local_path)
                         return
                     index += 1
@@ -98,7 +105,7 @@ class KaggleDataset:
             except queue.Empty:
                 return
             if isinstance(item, tuple):
-                _remove(item[1])
+                _remove(item[2])
 
 
 # Borra un archivo si existe.

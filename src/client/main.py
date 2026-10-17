@@ -14,7 +14,7 @@ SERVER_PORT = int(os.environ["SERVER_PORT"])
 KAGGLE_DATASET = os.environ["KAGGLE_DATASET"]
 DATASET_FILE_PATTERNS = os.environ["DATASET_FILE_PATTERNS"]
 DATASET_FILES_PER_PATTERN = int(os.environ["DATASET_FILES_PER_PATTERN"])
-DATASET_MAX_ROWS = int(os.environ["DATASET_MAX_ROWS"])
+DATASET_ROWS_PER_PATTERN = int(os.environ["DATASET_ROWS_PER_PATTERN"])
 CLIENT_COLUMNS = os.environ["CLIENT_COLUMNS"]
 PARQUET_ROWS_PER_READ = int(os.environ["PARQUET_ROWS_PER_READ"])
 MAX_BATCH_ROWS = int(os.environ["MAX_BATCH_ROWS"])
@@ -32,20 +32,23 @@ def parse_list(value):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-# Devuelve las filas de todos los archivos a medida que se van bajando.
+# Devuelve las filas de los archivos a medida que se van bajando, hasta el tope de filas de cada patron.
 def rows_of(dataset, client):
     columns = parse_list(CLIENT_COLUMNS) or None
-    sent = 0
+    sent = {}
     with contextlib.closing(dataset.files()) as files:
-        for file_path, local_path in files:
+        for pattern, file_path, local_path in files:
             if client.stopped:
                 return
+            if sent.get(pattern, 0) == DATASET_ROWS_PER_PATTERN > 0:
+                continue
             logging.info(f"Mandando {file_path}")
             for row in read_rows(local_path, columns, PARQUET_ROWS_PER_READ):
-                if sent == DATASET_MAX_ROWS > 0:
-                    return
                 yield row
-                sent += 1
+                sent[pattern] = sent.get(pattern, 0) + 1
+                if sent[pattern] == DATASET_ROWS_PER_PATTERN:
+                    dataset.skip_pattern(pattern)
+                    break
 
 
 # Baja el dataset y lo manda al gateway, cortando limpio ante SIGTERM y borrando lo bajado al final.

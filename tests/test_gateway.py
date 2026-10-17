@@ -42,9 +42,11 @@ class InternalProtocolTest(unittest.TestCase):
         self.assertEqual(value["articles"], [article(1), article(2)])
 
     def test_eof_round_trip(self):
-        msg_type, value = internal.decode(internal.encode_eof("c1", "gateway_3"))
+        msg_type, value = internal.decode(internal.encode_eof("c1", 3, "gateway_3", 5, 5, 5))
         self.assertEqual(msg_type, internal.MsgType.EOF)
-        self.assertEqual((value["client_id"], value["origin"]), ("c1", "gateway_3"))
+        self.assertEqual((value["client_id"], value["gateway_id"], value["origin"]), ("c1", 3, "gateway_3"))
+        self.assertEqual((value["processed"], value["total"], value["sent"]), (5, 5, 5))
+        self.assertNotIn("query", value)
 
     def test_invalid_messages(self):
         for message in (b"[1, 2]", b'{"type": 99, "client_id": "c1"}', b'{"type": 1}'):
@@ -104,7 +106,9 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(len(client_ids), 1)
         self.assertEqual({v["gateway_id"] for _, v in decoded[:-1]}, {7})
         self.assertEqual([a for _, v in decoded[:-1] for a in v["articles"]], sent)
-        self.assertEqual(decoded[-1][1]["origin"], "gateway_7")
+        eof = decoded[-1][1]
+        self.assertEqual((eof["origin"], eof["gateway_id"]), ("gateway_7", 7))
+        self.assertEqual((eof["processed"], eof["total"], eof["sent"]), (5, 5, 5))
 
     def test_drops_the_columns_it_does_not_need(self):
         columns = ["references"] + list(Article._fields)

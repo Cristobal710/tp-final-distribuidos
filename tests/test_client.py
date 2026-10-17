@@ -123,20 +123,36 @@ class ReaderTest(unittest.TestCase):
                     "enwiki/data/enwiki_namespace_0_00002.parquet", "frwiki/data/frwiki_namespace_0_00000.parquet"}
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeKaggle(existing)
-            self.assertEqual([p for p, _ in kaggle(tmp, fake.download, files_per_pattern=2).files()], [
+            self.assertEqual([p for _, p, _ in kaggle(tmp, fake.download, files_per_pattern=2).files()], [
                 "enwiki/data/enwiki_namespace_0_00000.parquet",
                 "enwiki/data/enwiki_namespace_0_00001.parquet",
                 "frwiki/data/frwiki_namespace_0_00000.parquet",
             ])
             self.assertTrue(all(d == "wikimedia-foundation/wikipedia-structured-contents" for d, _, _ in fake.requests))
             self.assertTrue(all(out == tmp for _, _, out in fake.requests))
-            self.assertEqual([p for p, _ in kaggle(tmp, fake.download).files()], sorted(existing))
+            self.assertEqual([p for _, p, _ in kaggle(tmp, fake.download).files()], sorted(existing))
+
+    def test_yields_the_pattern_of_each_file_and_skipping_a_pattern_moves_to_the_next(self):
+        existing = {f"enwiki/data/enwiki_namespace_0_{i:05}.parquet" for i in range(10)}
+        existing |= {"frwiki/data/frwiki_namespace_0_00000.parquet"}
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = FakeKaggle(existing)
+            dataset = kaggle(tmp, fake.download)
+            seen = []
+            for pattern, file_path, _ in dataset.files():
+                seen.append((pattern, file_path))
+                if pattern == PATTERNS[0]:
+                    dataset.skip_pattern(pattern)
+            self.assertEqual(seen[0], (PATTERNS[0], "enwiki/data/enwiki_namespace_0_00000.parquet"))
+            self.assertEqual(seen[-1], (PATTERNS[1], "frwiki/data/frwiki_namespace_0_00000.parquet"))
+            self.assertLess(len([p for p, _ in seen if p == PATTERNS[0]]), 4)
+            self.assertEqual(parquet_files(tmp), [])
 
     def test_each_file_is_deleted_after_sending_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeKaggle({f"enwiki/data/enwiki_namespace_0_{i:05}.parquet" for i in range(4)})
             seen = []
-            for _, local_path in kaggle(tmp, fake.download, patterns=PATTERNS[:1]).files():
+            for _, _, local_path in kaggle(tmp, fake.download, patterns=PATTERNS[:1]).files():
                 self.assertTrue(os.path.exists(local_path))
                 self.assertLessEqual(len(parquet_files(tmp)), 3)
                 seen.append(local_path)

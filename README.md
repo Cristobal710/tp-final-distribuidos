@@ -29,6 +29,12 @@ src/
     server.py             acepta clientes, se queda con las columnas necesarias y publica en clasificacion
     Dockerfile
     requirements.txt
+  nodes/                  nodos de procesamiento
+    classifier/
+      main.py             configuracion, SIGTERM y arranque
+      classifier.py       calcula periodo e idioma y reparte en texto, bio y resultados (Q1)
+      Dockerfile
+      requirements.txt
   common/                 lo que comparten todos los nodos
     batching/
       batch_builder.py    junta items en batches con tope de cantidad y de bytes
@@ -57,7 +63,7 @@ tests/                    tests
 | `KAGGLE_DATASET` | Dataset de Kaggle | `wikimedia-foundation/wikipedia-structured-contents` |
 | `DATASET_FILE_PATTERNS` | Archivos a bajar, separados por coma. `{:05}` es el número de archivo | inglés y francés |
 | `DATASET_FILES_PER_PATTERN` | Archivos de cada patrón. 0 baja todos | `0` |
-| `DATASET_MAX_ROWS` | Máximo de filas a mandar. 0 manda todas | `0` |
+| `DATASET_ROWS_PER_PATTERN` | Máximo de filas a mandar de cada patrón (idioma). 0 manda todas | `0` |
 | `CLIENT_COLUMNS` | Columnas a mandar, separadas por coma. Vacía manda todas | las 8 que usan las consultas |
 | `PARQUET_ROWS_PER_READ` | Filas por bloque al leer cada archivo | `2048` |
 | `MAX_BATCH_ROWS` | Máximo de filas por batch | `200` |
@@ -78,3 +84,16 @@ tests/                    tests
 | `GATEWAY_ID` | Identificador del gateway | `0` |
 | `RABBITMQ_HOST` | Host de RabbitMQ | `rabbitmq` |
 | `CLASSIFICATION_QUEUE` | Cola donde publica los artículos | `clasificacion` |
+
+### Clasificador
+
+| Variable | Descripción | Por defecto |
+|---|---|---|
+| `CLASSIFIER_ID` | Identificador del clasificador | `0` |
+| `CLASSIFIER_AMOUNT` | Cantidad de clasificadores | `1` |
+| `RABBITMQ_HOST` | Host de RabbitMQ | `rabbitmq` |
+| `CLASSIFICATION_QUEUE` | Cola de la que consume | `clasificacion` |
+| `CONTROL_EXCHANGE` | Exchange por el que se avisan los EOF entre clasificadores | `control_clasificador` |
+| `TEXT_QUEUE` | Cola de los textos (Q3, Q4 y Q5) | `texto` |
+| `BIO_QUEUE` | Cola de los artículos hasta 2020 (Q2) | `bio` |
+| `RESULTS_QUEUE_PREFIX` | Prefijo de las colas de resultados, a las que se les agrega `.<gateway_id>` | `resultados` |

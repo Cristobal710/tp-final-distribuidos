@@ -215,35 +215,39 @@ El enunciado filtra por artículos "escritos" hasta 2020, y el dataset tiene dos
 | Hasta 2020 según `date_modified` | 140.724 (1,9 %) | 176.112 (6,1 %) | 316.836 (3 %) |
 | Hasta 2020 según `date_created` | 5.109.778 (67 %) | 1.387.372 (48 %) | 6.497.150 (62 %) |
 
-* "Escrito" corresponde a la fecha de creación. Q1 también devuelve `date_created` junto con la url.
-* Con `date_modified`, un artículo escrito en 2005 y editado el mes pasado cuenta como de 2026. Así, Q1, Q2 y el promedio de Q5 trabajarían solo sobre el 3 % de los artículos.
+* "Escrito" corresponde a la fecha de creación. En cambio, lo que Q1 devuelve junto con la url es la fecha de modificación, `date_modified`.
+* Con `date_modified`, un artículo escrito en 2005 y editado el mes pasado cuenta como de 2026.
+
 **Regla para decidir el período de un artículo:**
 
-1. Si tiene `date_created`, se usa esa fecha.
-2. Si no tiene, se usa `date_modified`.
-3. Si no tiene ninguna de las dos, el artículo se descarta.
+1. El período sale solo de `date_created`.
+2. Si `date_created` está vacío, el artículo no tiene período y se ignora en las consultas que filtran por fecha (Q1, Q2 y Q5). Sigue contando para Q3 y Q4, que no miran la fecha.
 
 Con esta regla, los artículos quedan así:
 
 | | Inglés | Francés | Total |
 |---|---|---|---|
-| Hasta 2020 | 5.250.494 (69 %) | 1.563.482 (54 %) | 6.813.976 (65 %) |
-| Desde 2021 | 2.346.655 (31 %) | 1.308.250 (46 %) | 3.654.905 (35 %) |
-| Descartados | 0 | 0 | 0 |
+| Hasta 2020 | 5.109.778 (67 %) | 1.387.372 (48 %) | 6.497.150 (62 %) |
+| Desde 2021 | 1.045.123 (14 %) | 380.769 (13 %) | 1.425.892 (14 %) |
+| Sin período | 1.442.248 (19 %) | 1.103.591 (38 %) | 2.545.839 (24 %) |
 
-En este dataset no se descarta ninguno, porque todos tienen `date_modified`. En ningún artículo la creación es posterior a la modificación, así que los que usan `date_modified` y quedan hasta 2020 están bien clasificados. Los que quedan desde 2021 pueden incluir algunos que se escribieron antes y se editaron después.
+**Datos vacíos.** La misma idea vale para el resto de las columnas: si a un artículo le falta un dato que una consulta necesita, esa consulta lo ignora. El clasificador no lo manda a donde no sirve:
+
+* a `texto`, solo si tiene `abstract`;
+* a `bio`, solo si tiene `sections` e `image_url`, porque Q2 devuelve la imagen;
+* a Q1, solo si tiene `date_modified`, porque es lo que devuelve.
 
 ## Del gateway al exchange de entrada
 
 1. **Lectura.** Quien lee el archivo (el cliente en la opción 1, los searchers en la opción 2) carga solo las columnas que se usan y arma los batches.
 2. **Gateway.** Le agrega al batch el `client_id` y el `gateway_id` y lo publica en la cola de uno de los clasificadores, `clasificacion.<i>`, repartiendo por round-robin. No mira el contenido. Todos los mensajes que siguen llevan esos dos datos, así que no los repetimos en los diagramas.
-3. **Clasificador (sin estado, N instancias).** Cada instancia toma batches de su propia cola. Para cada artículo calcula el período (`hasta_2020` o `desde_2021`, con la regla de "Fechas") y el idioma.
+3. **Clasificador (sin estado, N instancias).** Cada instancia toma batches de su propia cola. Para cada artículo calcula el período (`hasta_2020`, `desde_2021` o vacío, con la regla de "Fechas") y el idioma.
 4. **Exchange de entrada (direct).** El clasificador arma un mensaje por tipo, con solo las columnas que necesita cada grupo, y lo publica con el tipo como clave. Para `bio` y `texto`, la clave también dice a qué instancia va, y el clasificador las reparte por round-robin:
 
     | Clave | Columnas | Se publica para | Cola |
     |---|---|---|---|
-    | `bio.<i>` | name, url, sections, image_url | hasta 2020 | Cola `bio.<i>` del Filter biography i (Q2) |
-    | `texto.<i>` | url, abstract, período, idioma | todos | Cola `texto.<i>` del Text processor i (Q3, Q4 y Q5) |
+    | `bio.<i>` | name, url, sections, image_url | hasta 2020, con sections e image_url | Cola `bio.<i>` del Filter biography i (Q2) |
+    | `texto.<i>` | url, abstract, período, idioma | todos los que tienen abstract | Cola `texto.<i>` del Text processor i (Q3, Q4 y Q5) |
 
     El clasificador vuelve a agrupar los artículos por clave, así que cada mensaje que publica es un batch con una sola clave. Solo publica lo que alguien consume: por ejemplo, un artículo en francés de 2023 solo sale como `texto`.
 
@@ -255,7 +259,7 @@ flowchart LR
     GW -- "clasificacion.i: batch + client_id + gateway_id<br/>round-robin" --> QCL[["Colas clasificacion.i<br/>(una por instancia)"]]
     QCL --> CL["Clasificadores<br/>(N instancias)"]
     CL -- "batches agrupados por clave" --> EXE{{"Exchange de entrada<br/>(direct)"}}
-    CL -- "resultados.g: Q1 (url, date_created)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    CL -- "resultados.g: Q1 (url, date_modified)<br/>por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
 
     EXE -- "bio.i: name, url, sections, image_url<br/>round-robin" --> QBIO[["Colas bio.i<br/>(una por instancia)"]]
     EXE -- "texto.i: url, abstract, período, idioma<br/>round-robin" --> QTX[["Colas texto.i<br/>(una por instancia)"]]
@@ -282,7 +286,7 @@ No usamos exchanges topic ni fanout. Topic serviría para que cada cola elija co
 
 ## Q1
 
-1. Para los artículos en inglés hasta 2020, el clasificador arma una fila con url y `date_created`. Eso ya es la respuesta de Q1.
+1. Para los artículos en inglés escritos hasta 2020, el clasificador arma una fila con url y `date_modified`. Eso ya es la respuesta de Q1.
 2. La publica directo en el exchange de resultados, con la clave `resultados.<g>` del gateway del cliente. Q1 no necesita ningún nodo más.
 
 Los resultados de Q1 salen a medida que se clasifican los batches. No hace falta esperar al final del archivo.
@@ -290,7 +294,7 @@ Los resultados de Q1 salen a medida que se clasifican los batches. No hace falta
 ```mermaid
 flowchart LR
     QCL[["Colas clasificacion.i<br/>(una por instancia)"]] --> CL["Clasificadores<br/>(N instancias)"]
-    CL -- "resultados.g: url, date_created<br/>(inglés, hasta 2020), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
+    CL -- "resultados.g: url, date_modified<br/>(inglés, hasta 2020), por gateway_id" --> EXR{{"Exchange de resultados<br/>(direct)"}}
     CL --> EXE{{"Exchange de entrada<br/>(direct)"}}
     EXE -- "bio.i, texto.i" --> OTRAS["Otras consultas<br/>(Q2, Q3, Q4 y Q5)"]
 
@@ -536,7 +540,7 @@ Cada cliente está conectado a un solo gateway, el que le asignó el balanceador
 
     | Nodo | Consulta | Qué publica |
     |---|---|---|
-    | Clasificador | Q1 | url y date_created |
+    | Clasificador | Q1 | url y date_modified |
     | Buscador de imágenes | Q2 | name, url y bytes de la imagen |
     | Join Q3 | Q3 | palabras compartidas |
     | Top 20 final | Q4 | 20 pares (palabra, cantidad) |

@@ -52,7 +52,10 @@ def serialize_fields(serialized_fields):
 
 # Convierte bytes serializados de vuelta en un objeto de Python.
 def deserialize(value):
-    return json.loads(value)
+    try:
+        return json.loads(value)
+    except ValueError as e:
+        raise ProtocolError(f"Contenido que no se puede deserializar: {e}") from e
 
 
 # Arma el mensaje y lo manda completo.
