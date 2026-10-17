@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dataset bajado de Kaggle y credenciales
+datasets/
+*.part
+kaggle.json

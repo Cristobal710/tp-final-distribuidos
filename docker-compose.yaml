@@ -1,0 +1,34 @@
+x-client: &client
+  build:
+    context: ./src
+    dockerfile: client/Dockerfile
+  image: tp-client
+  environment: &client-environment
+    SERVER_HOST: gateway
+    SERVER_PORT: 5678
+
+services:
+  client_0:
+    <<: *client
+    container_name: client_0
+    environment:
+      <<: *client-environment
+      DATASET_FILES_PER_PATTERN: 1
+
+  client_1:
+    <<: *client
+    container_name: client_1
+    environment:
+      <<: *client-environment
+      DATASET_FILE_PATTERNS: frwiki/data/frwiki_namespace_0_{:05}.parquet
+      DATASET_FILES_PER_PATTERN: 2
+
+  client_2:
+    <<: *client
+    container_name: client_2
+    environment:
+      <<: *client-environment
+      DATASET_FILES_PER_PATTERN: 1
+      CLIENT_COLUMNS: ""
+      MAX_BATCH_ROWS: 500
+      MAX_BATCH_BYTES: 4194304
