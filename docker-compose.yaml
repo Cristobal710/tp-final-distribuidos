@@ -51,6 +51,86 @@ services:
       CLASSIFIER_ID: 1
       CLASSIFIER_AMOUNT: 2
 
+  text_processor_0:
+    build:
+      context: ./src
+      dockerfile: nodes/text_processor/Dockerfile
+    container_name: text_processor_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TEXT_PROCESSOR_ID: 0
+      TEXT_PROCESSOR_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 2
+      WORD_COUNTER_AMOUNT: 2
+
+  text_processor_1:
+    build:
+      context: ./src
+      dockerfile: nodes/text_processor/Dockerfile
+    container_name: text_processor_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TEXT_PROCESSOR_ID: 1
+      TEXT_PROCESSOR_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 2
+      WORD_COUNTER_AMOUNT: 2
+
+  word_counter_0:
+    build:
+      context: ./src
+      dockerfile: nodes/word_counter/Dockerfile
+    container_name: word_counter_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WORD_COUNTER_ID: 0
+      TEXT_PROCESSOR_AMOUNT: 2
+      JOIN_Q3_AMOUNT: 1
+      TOP20_AMOUNT: 1
+
+  word_counter_1:
+    build:
+      context: ./src
+      dockerfile: nodes/word_counter/Dockerfile
+    container_name: word_counter_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WORD_COUNTER_ID: 1
+      TEXT_PROCESSOR_AMOUNT: 2
+      JOIN_Q3_AMOUNT: 1
+      TOP20_AMOUNT: 1
+
+  join_q3_0:
+    build:
+      context: ./src
+      dockerfile: nodes/join_q3/Dockerfile
+    container_name: join_q3_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      JOIN_Q3_ID: 0
+      WORD_COUNTER_AMOUNT: 2
+
+  top20_0:
+    build:
+      context: ./src
+      dockerfile: nodes/top20/Dockerfile
+    container_name: top20_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TOP20_ID: 0
+      WORD_COUNTER_AMOUNT: 2
+
   client_0:
     build:
       context: ./src
@@ -61,5 +141,5 @@ services:
       - gateway
     environment:
       SERVER_HOST: gateway
-      DATASET_ROWS_PER_PATTERN: 10
+      DATASET_ROWS_PER_PATTERN: 20000
       MAX_BATCH_ROWS: 100
