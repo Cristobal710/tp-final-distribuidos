@@ -29,19 +29,19 @@ class WordCounterTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
 
-    def run_counter(self, *events, text_processors=2, joins=1, tops=1, top_size=3, max_rows=100):
+    def run_counter(self, *events, text_processors=2, joins=1, tops=1, top_size=3, max_rows=100, buckets=3):
         self.input = FakeInputQueue(events)
         self.joins = [FakeOutputQueue() for _ in range(joins)]
         self.tops = [FakeOutputQueue() for _ in range(tops)]
-        self.files = ClientFiles(self.directory.name, "word_counter_1")
+        self.buckets = [ClientFiles(self.directory.name, f"word_counter_1_{bucket}") for bucket in range(buckets)]
         self.counter = WordCounter(
-            1, self.input, self.files, self.joins, self.tops, text_processors, top_size, max_rows, 1_000_000
+            1, self.input, self.buckets, self.joins, self.tops, text_processors, top_size, max_rows, 1_000_000
         )
         with self.assertLogs(level="INFO"):
             self.counter.run()
 
     def shared_words(self, queue):
-        return [row.word for value in queue.data() for row in value["shared_words"]]
+        return sorted(row.word for value in queue.data() for row in value["shared_words"])
 
     def top_words(self, queue):
         return [(row.word, row.articles) for value in queue.data() for row in value["top_words"]]
@@ -154,6 +154,36 @@ class WordCounterTest(unittest.TestCase):
         self.assertEqual(self.shared_words(self.joins[0]), [])
         self.assertEqual([v["client_id"] for _, v in self.joins[0].eofs()], ["c1", "c2"])
         self.assertEqual(os.listdir(self.directory.name), [])
+
+    def test_every_appearance_of_a_word_is_stored_in_the_file_of_its_bucket(self):
+        words = [f"palabra{i}" for i in range(30)]
+        self.run_counter(
+            words_message("c1", *[(word, 1, True, False) for word in words]),
+            words_message("c1", *[(word, 1, False, True) for word in words[:10]]),
+            buckets=4,
+        )
+        for bucket, files in enumerate(self.buckets):
+            stored = [row[0] for row in files.read("c1")]
+            self.assertTrue(all(partition.bucket_of(word, 4) == bucket for word in stored))
+        stored = sorted(row[0] for files in self.buckets for row in files.read("c1"))
+        self.assertEqual(stored, sorted(words + words[:10]))
+
+    def test_the_result_does_not_depend_on_the_amount_of_buckets(self):
+        events = [
+            words_message("c1", *[(f"palabra{i}", i % 7 + 1, i % 2 == 0, i % 3 == 0) for i in range(40)]),
+            words_message("c1", *[(f"palabra{i}", 2, i % 5 == 0, True) for i in range(0, 40, 4)]),
+            eof_message("c1", "text_processor_0", 2, 2, 2),
+            eof_message("c1", "text_processor_1", 0, 2, 0),
+        ]
+        results = []
+        for buckets in (1, 5, 16):
+            for name in os.listdir(self.directory.name):
+                os.remove(os.path.join(self.directory.name, name))
+            self.run_counter(*events, top_size=5, buckets=buckets)
+            results.append((self.shared_words(self.joins[0]), self.top_words(self.tops[0])))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0], results[2])
+        self.assertTrue(results[0][0])
 
     def test_invalid_messages_are_discarded_and_acked(self):
         self.run_counter(b"basura")

@@ -13,7 +13,8 @@ ENV PYTHONUNBUFFERED=1 \
     CONTROL_EXCHANGE=control_clasificador \
     TEXT_QUEUE=texto \
     BIO_QUEUE=bio \
-    RESULTS_QUEUE_PREFIX=resultados
+    RESULTS_QUEUE_PREFIX=resultados \
+    PUBLISHER_IDLE_SECONDS=30
 
 COPY common ./common
 COPY nodes/classifier .

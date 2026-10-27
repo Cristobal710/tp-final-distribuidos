@@ -6,6 +6,7 @@ import sys
 from classifier import Classifier
 from common.middleware import MessageMiddlewareExchangeRabbitMQ, MessageMiddlewareQueueRabbitMQ
 from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
+from common.publisher import ReconnectingPublisher
 
 CLASSIFIER_ID = int(os.environ["CLASSIFIER_ID"])
 CLASSIFIER_AMOUNT = int(os.environ["CLASSIFIER_AMOUNT"])
@@ -15,11 +16,17 @@ CONTROL_EXCHANGE = os.environ["CONTROL_EXCHANGE"]
 TEXT_QUEUE = os.environ["TEXT_QUEUE"]
 BIO_QUEUE = os.environ["BIO_QUEUE"]
 RESULTS_QUEUE_PREFIX = os.environ["RESULTS_QUEUE_PREFIX"]
+IDLE_SECONDS = float(os.environ["PUBLISHER_IDLE_SECONDS"])
+
+
+# Arma un publicador que abre la cola de salida recien cuando la usa y la renueva si estuvo ociosa.
+def publisher_of(queue_name):
+    return ReconnectingPublisher(lambda: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, queue_name), IDLE_SECONDS)
 
 
 # Abre la cola de resultados de un gateway.
 def open_results_queue(gateway_id):
-    return MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{RESULTS_QUEUE_PREFIX}.{gateway_id}")
+    return publisher_of(f"{RESULTS_QUEUE_PREFIX}.{gateway_id}")
 
 
 # Cierra cada conexion aunque falle alguna.
@@ -39,11 +46,14 @@ def main():
     control_input = MessageMiddlewareExchangeRabbitMQ(
         RABBITMQ_HOST, CONTROL_EXCHANGE, [f"{CONTROL_EXCHANGE}.{CLASSIFIER_ID}"]
     )
-    control_output = MessageMiddlewareExchangeRabbitMQ(
-        RABBITMQ_HOST, CONTROL_EXCHANGE, [f"{CONTROL_EXCHANGE}.{i}" for i in range(CLASSIFIER_AMOUNT)]
+    control_output = ReconnectingPublisher(
+        lambda: MessageMiddlewareExchangeRabbitMQ(
+            RABBITMQ_HOST, CONTROL_EXCHANGE, [f"{CONTROL_EXCHANGE}.{i}" for i in range(CLASSIFIER_AMOUNT)]
+        ),
+        IDLE_SECONDS,
     )
-    text_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, TEXT_QUEUE)
-    bio_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, BIO_QUEUE)
+    text_queue = publisher_of(TEXT_QUEUE)
+    bio_queue = publisher_of(BIO_QUEUE)
     classifier = Classifier(
         CLASSIFIER_ID, classification_queue, control_input, control_output,
         text_queue, bio_queue, open_results_queue, PREFETCH_COUNT,

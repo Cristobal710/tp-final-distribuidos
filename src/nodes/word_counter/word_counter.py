@@ -1,4 +1,5 @@
 import heapq
+import itertools
 import logging
 
 from common import partition
@@ -7,16 +8,31 @@ from common.eof import UpstreamTracker
 from common.protocol import articles, external, internal
 
 
-# Cuenta las palabras de su shard: guarda en disco lo que le llega de los Text processor y, cuando terminaron los
-# datos de un cliente, manda las palabras compartidas al Join Q3 y su top local al Top 20 final.
+# Suma las filas de palabras guardadas: en cuantos articulos aparece cada una y si aparece en ingles y en frances.
+def total_counts(rows):
+    counts = {}
+    for word, article_count, english, french in rows:
+        entry = counts.get(word)
+        if entry is None:
+            counts[word] = [article_count, english, french]
+        else:
+            entry[0] += article_count
+            entry[1] = entry[1] or english
+            entry[2] = entry[2] or french
+    return counts
+
+
+# Cuenta las palabras de su shard: guarda en disco lo que le llega de los Text processor, repartido en varios archivos
+# por palabra, y cuando terminaron los datos de un cliente manda las palabras compartidas al Join Q3 y su top local al
+# Top 20 final.
 class WordCounter:
 
-    def __init__(self, counter_id, input_queue, files, join_queues, top_queues, text_processor_amount,
+    def __init__(self, counter_id, input_queue, buckets, join_queues, top_queues, text_processor_amount,
                  top_size, max_rows, max_bytes):
         self._counter_id = counter_id
         self._origin = f"word_counter_{counter_id}"
         self._input_queue = input_queue
-        self._files = files
+        self._buckets = list(buckets)
         self._join_queues = join_queues
         self._top_queues = top_queues
         self._top_size = top_size
@@ -49,7 +65,7 @@ class WordCounter:
             return
         client_id = value["client_id"]
         if msg_type == internal.MsgType.WORDS:
-            self._files.append(client_id, [external.serialize(row) for row in value["rows"]])
+            self._store(client_id, value["rows"])
             self._text_processors.add_message(client_id)
         elif msg_type == internal.MsgType.EOF:
             self._text_processors.add_eof(value)
@@ -61,28 +77,40 @@ class WordCounter:
             self._finish_client(client_id, value["gateway_id"])
         ack()
 
-    # Junta lo guardado del cliente, manda sus palabras compartidas y su top local, y borra el archivo.
+    # Guarda las filas de un mensaje, cada una en el archivo que le toca a su palabra, con una escritura por archivo.
+    def _store(self, client_id, rows):
+        rows_by_bucket = {}
+        for row in rows:
+            bucket = partition.bucket_of(row[0], len(self._buckets))
+            rows_by_bucket.setdefault(bucket, []).append(external.serialize(row))
+        for bucket, serialized_rows in rows_by_bucket.items():
+            self._buckets[bucket].append(client_id, serialized_rows)
+
+    # Manda las palabras compartidas y el top local del cliente, armados de a un archivo por vez, y borra los archivos.
     def _finish_client(self, client_id, gateway_id):
         received = self._text_processors.received(client_id)
-        counts = {}
-        for word, article_count, english, french in self._files.read(client_id):
-            entry = counts.get(word)
-            if entry is None:
-                counts[word] = [article_count, english, french]
-            else:
-                entry[0] += article_count
-                entry[1] = entry[1] or english
-                entry[2] = entry[2] or french
-        shared = [articles.encode_row(internal.SharedWord(word)) for word, entry in counts.items() if entry[1] and entry[2]]
-        top = heapq.nsmallest(self._top_size, counts.items(), key=lambda item: (-item[1][0], item[0]))
-        top_rows = [articles.encode_row(internal.WordCount(word, entry[0])) for word, entry in top]
+        top = []
         index = partition.shard_of(client_id, len(self._join_queues))
+        shared = self._shared_rows(client_id, top)
         self._send_rows(self._join_queues[index], internal.MsgType.SHARED_WORDS, client_id, gateway_id, shared, received)
+        top_rows = [articles.encode_row(internal.WordCount(word, article_count)) for word, article_count in top]
         index = partition.shard_of(client_id, len(self._top_queues))
         self._send_rows(self._top_queues[index], internal.MsgType.TOP_WORDS, client_id, gateway_id, top_rows, received)
-        self._files.delete(client_id)
+        for bucket in self._buckets:
+            bucket.delete(client_id)
         self._text_processors.forget(client_id)
-        logging.info(f"Cliente {client_id}: {len(counts)} palabras, {len(shared)} compartidas")
+        logging.info(f"Cliente {client_id}: palabras compartidas y top local enviados")
+
+    # Recorre los archivos del cliente de a uno: devuelve las palabras compartidas de cada uno y va dejando en top las
+    # palabras con mas articulos, asi en memoria hay un solo archivo a la vez.
+    def _shared_rows(self, client_id, top):
+        for bucket in self._buckets:
+            counts = total_counts(bucket.read(client_id))
+            for word, (article_count, english, french) in counts.items():
+                if english and french:
+                    yield articles.encode_row(internal.SharedWord(word))
+            candidates = itertools.chain(top, ((word, entry[0]) for word, entry in counts.items()))
+            top[:] = heapq.nsmallest(self._top_size, candidates, key=lambda item: (-item[1], item[0]))
 
     # Manda las filas a una cola en mensajes del tipo dado, seguidas del EOF con lo que se mando.
     def _send_rows(self, queue, msg_type, client_id, gateway_id, rows, received):

@@ -28,9 +28,11 @@ class UpstreamTracker:
             self._clients[client_id] = _ClientState()
         return self._clients[client_id]
 
-    # Registra el EOF de un origen.
+    # Registra el EOF de un origen, ignorandolo si ese origen ya habia mandado el suyo.
     def add_eof(self, value):
         state = self._state(value["client_id"])
+        if value["origin"] in state.origins:
+            return
         state.origins.add(value["origin"])
         state.processed += value["processed"]
         state.total = value["total"]
