@@ -26,6 +26,9 @@ services:
         condition: service_healthy
     environment:
       GATEWAY_ID: 0
+      CLASSIFIER_AMOUNT: 2
+      IMAGE_DOWNLOADER_AMOUNT: 2
+      COMPARATOR_AMOUNT: 2
 
   classifier_0:
     build:
@@ -51,6 +54,58 @@ services:
       CLASSIFIER_ID: 1
       CLASSIFIER_AMOUNT: 2
 
+  filter_biography_0:
+    build:
+      context: ./src
+      dockerfile: nodes/filter_biography/Dockerfile
+    container_name: filter_biography_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      FILTER_BIOGRAPHY_ID: 0
+      FILTER_BIOGRAPHY_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 2
+
+  filter_biography_1:
+    build:
+      context: ./src
+      dockerfile: nodes/filter_biography/Dockerfile
+    container_name: filter_biography_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      FILTER_BIOGRAPHY_ID: 1
+      FILTER_BIOGRAPHY_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 2
+
+  image_downloader_0:
+    build:
+      context: ./src
+      dockerfile: nodes/image_downloader/Dockerfile
+    container_name: image_downloader_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IMAGE_DOWNLOADER_ID: 0
+      IMAGE_DOWNLOADER_AMOUNT: 2
+      FILTER_BIOGRAPHY_AMOUNT: 2
+
+  image_downloader_1:
+    build:
+      context: ./src
+      dockerfile: nodes/image_downloader/Dockerfile
+    container_name: image_downloader_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IMAGE_DOWNLOADER_ID: 1
+      IMAGE_DOWNLOADER_AMOUNT: 2
+      FILTER_BIOGRAPHY_AMOUNT: 2
+
   text_processor_0:
     build:
       context: ./src
@@ -64,6 +119,8 @@ services:
       TEXT_PROCESSOR_AMOUNT: 2
       CLASSIFIER_AMOUNT: 2
       WORD_COUNTER_AMOUNT: 2
+      AVERAGE_AMOUNT: 2
+      COMPARATOR_AMOUNT: 2
 
   text_processor_1:
     build:
@@ -78,6 +135,62 @@ services:
       TEXT_PROCESSOR_AMOUNT: 2
       CLASSIFIER_AMOUNT: 2
       WORD_COUNTER_AMOUNT: 2
+      AVERAGE_AMOUNT: 2
+      COMPARATOR_AMOUNT: 2
+
+  average_0:
+    build:
+      context: ./src
+      dockerfile: nodes/average/Dockerfile
+    container_name: average_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AVERAGE_ID: 0
+      AVERAGE_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 2
+      COMPARATOR_AMOUNT: 2
+
+  average_1:
+    build:
+      context: ./src
+      dockerfile: nodes/average/Dockerfile
+    container_name: average_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AVERAGE_ID: 1
+      AVERAGE_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 2
+      COMPARATOR_AMOUNT: 2
+
+  comparator_0:
+    build:
+      context: ./src
+      dockerfile: nodes/comparator/Dockerfile
+    container_name: comparator_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      COMPARATOR_ID: 0
+      COMPARATOR_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 2
+
+  comparator_1:
+    build:
+      context: ./src
+      dockerfile: nodes/comparator/Dockerfile
+    container_name: comparator_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      COMPARATOR_ID: 1
+      COMPARATOR_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 2
 
   word_counter_0:
     build:

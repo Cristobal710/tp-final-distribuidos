@@ -15,6 +15,10 @@ ONE_MILLISECOND = datetime.timedelta(milliseconds=1)
 class MsgType(IntEnum):
     ARTICLES = 1
     END_OF_DATA = 2
+    RESULTS = 3
+    QUERY_DONE = 4
+    ALL_DONE = 5
+    ERROR = 6
 
 
 class ProtocolError(Exception):

@@ -5,9 +5,14 @@ import shutil
 import signal
 import sys
 import tempfile
+import json
+import threading
+from pathlib import Path
 
 from sender import Client
 from dataset import KaggleDataset, read_rows
+from dataset.local import local_rows
+from receiver import ResultReceiver
 
 SERVER_HOST = os.environ["SERVER_HOST"]
 SERVER_PORT = int(os.environ["SERVER_PORT"])
@@ -25,6 +30,9 @@ DOWNLOAD_DIR = os.environ["DOWNLOAD_DIR"]
 DOWNLOAD_FILES_AHEAD = int(os.environ["DOWNLOAD_FILES_AHEAD"])
 DOWNLOAD_POLL_SECONDS = float(os.environ["DOWNLOAD_POLL_SECONDS"])
 DOWNLOAD_STOP_TIMEOUT_SECONDS = float(os.environ["DOWNLOAD_STOP_TIMEOUT_SECONDS"])
+LOCAL_DATASET_DIR = os.environ.get("LOCAL_DATASET_DIR", "")
+RESULT_DIR = os.environ.get("RESULT_DIR", "/tmp/results")
+RESULT_TIMEOUT_SECONDS = float(os.environ.get("RESULT_TIMEOUT_SECONDS", "7200"))
 
 
 # Pasa un texto separado por comas a una lista, sin espacios ni elementos vacios.
@@ -55,27 +63,42 @@ def rows_of(dataset, client):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    download_dir = tempfile.mkdtemp(prefix="dataset-", dir=DOWNLOAD_DIR)
-    dataset = KaggleDataset(
-        download_dir,
-        KAGGLE_DATASET,
-        parse_list(DATASET_FILE_PATTERNS),
-        DATASET_FILES_PER_PATTERN,
-        DOWNLOAD_FILES_AHEAD,
-        DOWNLOAD_POLL_SECONDS,
-        DOWNLOAD_STOP_TIMEOUT_SECONDS,
-    )
+    download_dir = None
+    dataset = None
+    if not LOCAL_DATASET_DIR:
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        download_dir = tempfile.mkdtemp(prefix="dataset-", dir=DOWNLOAD_DIR)
+        dataset = KaggleDataset(
+            download_dir, KAGGLE_DATASET, parse_list(DATASET_FILE_PATTERNS), DATASET_FILES_PER_PATTERN,
+            DOWNLOAD_FILES_AHEAD, DOWNLOAD_POLL_SECONDS, DOWNLOAD_STOP_TIMEOUT_SECONDS,
+        )
     client = Client(
         SERVER_HOST, SERVER_PORT, MAX_BATCH_ROWS, MAX_BATCH_BYTES, CONNECT_ATTEMPTS, CONNECT_RETRY_SECONDS
     )
-    signal.signal(signal.SIGTERM, lambda signum, frame: client.stop())
+    termination_requested = threading.Event()
+
+    def stop(signum, frame):
+        termination_requested.set()
+        client.stop()
+
+    signal.signal(signal.SIGTERM, stop)
+    receiver = None
 
     try:
         client.connect()
-        client.send_rows(rows_of(dataset, client))
+        receiver = ResultReceiver(client.socket, RESULT_DIR, client.stop)
+        receiver.start()
+        rows = (local_rows(LOCAL_DATASET_DIR, parse_list(CLIENT_COLUMNS) or None, PARQUET_ROWS_PER_READ)
+                if LOCAL_DATASET_DIR else rows_of(dataset, client))
+        client.send_rows(rows)
+        receiver.wait(RESULT_TIMEOUT_SECONDS)
+        Path(RESULT_DIR, "summary.json").write_text(json.dumps({
+            "sent_rows": client.sent_rows, "sent_batches": client.sent_batches,
+            "received_rows": receiver.rows, "received_messages": receiver.messages,
+            "finished_queries": sorted(receiver.finished_queries), "all_done": receiver.all_done,
+        }, indent=2))
     except OSError as e:
-        if client.stopped:
+        if termination_requested.is_set():
             logging.info("Envío cortado por SIGTERM")
             return 0
         logging.error(f"Se perdió la conexión con el gateway: {e}")
@@ -84,8 +107,12 @@ def main():
         logging.error(f"Error inesperado: {e}")
         return 2
     finally:
+        client.stop()
+        if receiver is not None and receiver.ident is not None:
+            receiver.join(timeout=5)
         client.close()
-        shutil.rmtree(download_dir, ignore_errors=True)
+        if download_dir is not None:
+            shutil.rmtree(download_dir, ignore_errors=True)
     return 0
 
 

@@ -14,15 +14,17 @@ EXCHANGE_TYPE = "direct"
 # Cola de RabbitMQ con nombre fijo, durable y con mensajes persistentes, que varios consumidores pueden compartir.
 class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
 
-    def __init__(self, host, queue_name):
+    def __init__(self, host, queue_name, heartbeat=60):
         self._queue_name = queue_name
         self._connection = None
         self._channel = None
         self._consumer_tag = None
+        self._publishing_confirmed = False
 
         try:
             self._connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=host)
+                pika.ConnectionParameters(host=host, heartbeat=heartbeat, blocked_connection_timeout=30,
+                                          socket_timeout=10, stack_timeout=30)
             )
             self._channel = self._connection.channel()
             self._channel.basic_qos(prefetch_count=PREFETCH_COUNT)
@@ -113,10 +115,14 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         self._assert_connected()
 
         try:
+            if not self._publishing_confirmed:
+                self._channel.confirm_delivery()
+                self._publishing_confirmed = True
             self._channel.basic_publish(
                 exchange="",
                 routing_key=self._queue_name,
                 body=message,
+                mandatory=True,
                 properties=pika.BasicProperties(
                     delivery_mode=pika.DeliveryMode.Persistent
                 ),
@@ -165,13 +171,14 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
 # Exchange direct de RabbitMQ que publica y consume con un conjunto fijo de routing keys.
 class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
 
-    def __init__(self, host, exchange_name, routing_keys):
+    def __init__(self, host, exchange_name, routing_keys, heartbeat=60):
         self._exchange_name = exchange_name
         self._routing_keys = list(routing_keys)
         self._queue_name = None
         self._connection = None
         self._channel = None
         self._consumer_tag = None
+        self._publishing_confirmed = False
 
         if not self._routing_keys:
             raise MessageMiddlewareMessageError(
@@ -180,7 +187,8 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
 
         try:
             self._connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=host)
+                pika.ConnectionParameters(host=host, heartbeat=heartbeat, blocked_connection_timeout=30,
+                                          socket_timeout=10, stack_timeout=30)
             )
             self._channel = self._connection.channel()
             self._channel.basic_qos(prefetch_count=PREFETCH_COUNT)
@@ -274,11 +282,15 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
         self._assert_connected()
 
         try:
+            if not self._publishing_confirmed:
+                self._channel.confirm_delivery()
+                self._publishing_confirmed = True
             for routing_key in self._routing_keys:
                 self._channel.basic_publish(
                     exchange=self._exchange_name,
                     routing_key=routing_key,
                     body=message,
+                    mandatory=True,
                 )
         except pika.exceptions.AMQPConnectionError as e:
             raise MessageMiddlewareDisconnectedError(

@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import NamedTuple, Optional
+from typing import List, NamedTuple, Optional
 
 from . import articles, external
 
@@ -16,6 +16,10 @@ class MsgType(IntEnum):
     WORDS = 7
     SHARED_WORDS = 8
     TOP_WORDS = 9
+    IMAGES = 10
+    PARTIAL_AVERAGE = 11
+    CANDIDATES = 12
+    FINAL_AVERAGE = 13
 
 
 # Campos que tiene que traer cada mensaje de control.
@@ -25,6 +29,10 @@ REQUIRED_FIELDS = {
     MsgType.WORDS: ("gateway_id",),
     MsgType.SHARED_WORDS: ("gateway_id",),
     MsgType.TOP_WORDS: ("gateway_id",),
+    MsgType.IMAGES: ("gateway_id",),
+    MsgType.PARTIAL_AVERAGE: ("gateway_id",),
+    MsgType.CANDIDATES: ("gateway_id",),
+    MsgType.FINAL_AVERAGE: ("gateway_id",),
 }
 
 
@@ -42,6 +50,20 @@ class Bio(NamedTuple):
     url: Optional[str]
     sections: Optional[str]
     image_url: Optional[str]
+
+
+# Fila que va del filtro de biografias al descargador de imagenes (Q2).
+class ImageRequest(NamedTuple):
+    name: Optional[str]
+    url: Optional[str]
+    image_url: Optional[str]
+
+
+# Los bytes originales de la imagen se transportan como enteros porque el protocolo usa JSON.
+class Q2Result(NamedTuple):
+    name: Optional[str]
+    url: Optional[str]
+    image_bytes: List[int]
 
 
 # Fila del resultado de Q1.
@@ -68,6 +90,27 @@ class SharedWord(NamedTuple):
 class WordCount(NamedTuple):
     word: str
     articles: int
+
+
+# Promedio parcial de articulos hasta 2020
+class PartialAverage(NamedTuple):
+    total_words: int
+    article_count: int
+
+# Promedio final exacto de Q5
+class FinalAverage(NamedTuple):
+    total_words: int
+    article_count: int
+
+# Articulos de 2021 a ser comparados con el FinalAverage Q5
+class CandidateArticle(NamedTuple):
+    url: Optional[str]
+    word_count: int
+
+
+class Q5Result(NamedTuple):
+    url: Optional[str]
+    word_count: int
 
 
 # Arma el mensaje con un batch de articulos de un cliente para publicar en las colas internas.
@@ -101,6 +144,22 @@ def encode_texts(client_id, gateway_id, texts):
 # Arma el mensaje con un batch de filas para la cola de bio.
 def encode_bios(client_id, gateway_id, bios):
     return _encode_rows(MsgType.BIOS, client_id, gateway_id, bios)
+
+
+def encode_images(client_id, gateway_id, images):
+    return _encode_rows(MsgType.IMAGES, client_id, gateway_id, images)
+
+
+def encode_partial_average(client_id, gateway_id, partial_average):
+    return _encode_rows(MsgType.PARTIAL_AVERAGE, client_id, gateway_id, [partial_average])
+
+
+def encode_candidates(client_id, gateway_id, candidates):
+    return _encode_rows(MsgType.CANDIDATES, client_id, gateway_id, candidates)
+
+
+def encode_average(client_id, gateway_id, average):
+    return _encode_rows(MsgType.FINAL_AVERAGE, client_id, gateway_id, [average])
 
 
 # Arma el mensaje con un batch de resultados de una consulta.
@@ -162,6 +221,23 @@ def _decode_rows(value, row_type):
     return [row_type(*row) for row in rows]
 
 
+def _nonnegative_count(value):
+    if type(value) is not int or value < 0:
+        raise external.ProtocolError("Los conteos tienen que ser enteros no negativos")
+
+
+def _decode_average(value, row_type):
+    rows = _decode_rows(value, row_type)
+    if len(rows) != 1:
+        raise external.ProtocolError("El mensaje necesita una unica fila de estadisticas")
+    stats = rows[0]
+    _nonnegative_count(stats.total_words)
+    _nonnegative_count(stats.article_count)
+    if stats.article_count == 0 and stats.total_words != 0:
+        raise external.ProtocolError("Sin articulos, la suma de palabras tiene que ser cero")
+    return stats
+
+
 # Lee un mensaje interno, valida su tipo y sus campos y arma las filas segun el tipo.
 def decode(message):
     value = external.deserialize(message)
@@ -169,7 +245,7 @@ def decode(message):
         raise external.ProtocolError("Un mensaje interno tiene que tener tipo y client_id")
     try:
         msg_type = MsgType(value["type"])
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         raise external.ProtocolError(f"Tipo de mensaje interno desconocido: {value['type']}") from e
     missing = [field for field in REQUIRED_FIELDS.get(msg_type, ()) if field not in value]
     if missing:
@@ -180,10 +256,22 @@ def decode(message):
         value["texts"] = _decode_rows(value, Text)
     elif msg_type == MsgType.BIOS:
         value["bios"] = _decode_rows(value, Bio)
+    elif msg_type == MsgType.IMAGES:
+        value["images"] = _decode_rows(value, ImageRequest)
     elif msg_type == MsgType.WORDS:
         value["words"] = _decode_rows(value, Word)
     elif msg_type == MsgType.SHARED_WORDS:
         value["shared_words"] = _decode_rows(value, SharedWord)
     elif msg_type == MsgType.TOP_WORDS:
         value["top_words"] = _decode_rows(value, WordCount)
+    elif msg_type == MsgType.PARTIAL_AVERAGE:
+        value["partial_average"] = _decode_average(value, PartialAverage)
+    elif msg_type == MsgType.FINAL_AVERAGE:
+        value["average"] = _decode_average(value, FinalAverage)
+    elif msg_type == MsgType.CANDIDATES:
+        value["candidates"] = _decode_rows(value, CandidateArticle)
+        for candidate in value["candidates"]:
+            _nonnegative_count(candidate.word_count)
+            if candidate.url is not None and not isinstance(candidate.url, str):
+                raise external.ProtocolError("La URL tiene que ser un string o null")
     return msg_type, value

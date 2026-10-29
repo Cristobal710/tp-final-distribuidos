@@ -21,6 +21,10 @@ class Client:
         self.sent_rows = 0
         self.sent_batches = 0
 
+    @property
+    def socket(self):
+        return self._socket
+
     # Abre la conexion con el gateway.
     def connect(self):
         for attempt in range(1, self._connect_attempts + 1):

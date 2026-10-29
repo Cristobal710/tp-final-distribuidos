@@ -10,15 +10,20 @@ from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
 from common.publisher import ReconnectingPublisher
 from text_processor import TextProcessor
 from words_output import WordsOutput
+from q5_output import Q5Output
 
 TEXT_PROCESSOR_ID = int(os.environ["TEXT_PROCESSOR_ID"])
 TEXT_PROCESSOR_AMOUNT = int(os.environ["TEXT_PROCESSOR_AMOUNT"])
 CLASSIFIER_AMOUNT = int(os.environ["CLASSIFIER_AMOUNT"])
 WORD_COUNTER_AMOUNT = int(os.environ["WORD_COUNTER_AMOUNT"])
+AVERAGE_AMOUNT = int(os.environ["AVERAGE_AMOUNT"])
+COMPARATOR_AMOUNT = int(os.environ["COMPARATOR_AMOUNT"])
 RABBITMQ_HOST = os.environ["RABBITMQ_HOST"]
 TEXT_QUEUE = os.environ["TEXT_QUEUE"]
 CONTROL_EXCHANGE = os.environ["CONTROL_EXCHANGE"]
 WORDS_QUEUE_PREFIX = os.environ["WORDS_QUEUE_PREFIX"]
+AVERAGE_QUEUE_PREFIX = os.environ["AVERAGE_QUEUE_PREFIX"]
+COMPARISON_QUEUE_PREFIX = os.environ["COMPARISON_QUEUE_PREFIX"]
 MAX_BATCH_ROWS = int(os.environ["MAX_BATCH_ROWS"])
 MAX_BATCH_BYTES = int(os.environ["MAX_BATCH_BYTES"])
 IDLE_SECONDS = float(os.environ["PUBLISHER_IDLE_SECONDS"])
@@ -38,7 +43,7 @@ def close_all(connections):
             logging.error(f"Error cerrando una conexión: {e}")
 
 
-# Levanta el Text processor con sus colas, el exchange de control y la salida de Q3 y Q4, y lo apaga limpio ante SIGTERM.
+# Levanta el Text processor con sus colas, el control y las salidas de Q3, Q4 y Q5.
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
@@ -60,8 +65,26 @@ def main():
         for shard in range(WORD_COUNTER_AMOUNT)
     ]
     words_output = WordsOutput(WORDS_QUEUE_PREFIX, shard_queues, MAX_BATCH_ROWS, MAX_BATCH_BYTES)
+    average_queues = [
+        ReconnectingPublisher(
+            lambda shard=shard: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{AVERAGE_QUEUE_PREFIX}.{shard}"),
+            IDLE_SECONDS,
+        )
+        for shard in range(AVERAGE_AMOUNT)
+    ]
+    comparison_queues = [
+        ReconnectingPublisher(
+            lambda target=target: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{COMPARISON_QUEUE_PREFIX}.{target}"),
+            IDLE_SECONDS,
+        )
+        for target in range(COMPARATOR_AMOUNT)
+    ]
+    q5_output = Q5Output(
+        AVERAGE_QUEUE_PREFIX, average_queues, COMPARISON_QUEUE_PREFIX, comparison_queues,
+        MAX_BATCH_ROWS, MAX_BATCH_BYTES,
+    )
     processor = TextProcessor(
-        TEXT_PROCESSOR_ID, text_queue, control_input, control_output, [words_output],
+        TEXT_PROCESSOR_ID, text_queue, control_input, control_output, [words_output, q5_output],
         CLASSIFIER_AMOUNT, load_stop_words(), PREFETCH_COUNT,
     )
     signal.signal(signal.SIGTERM, lambda signum, frame: processor.stop())

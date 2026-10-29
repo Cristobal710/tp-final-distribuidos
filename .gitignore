@@ -222,3 +222,6 @@ __marimo__/
 datasets/
 *.part
 kaggle.json
+
+# Full-suite inputs, expected outputs and run reports
+.artifacts/

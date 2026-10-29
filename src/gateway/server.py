@@ -9,7 +9,7 @@ from common.protocol import articles, external, internal
 # Acepta clientes por TCP y publica sus articulos en la cola de clasificacion, con un hilo por cliente.
 class Server:
 
-    def __init__(self, host, port, gateway_id, open_classification_queue):
+    def __init__(self, host, port, gateway_id, open_classification_queue, results=None):
         self._address = (host, port)
         self._gateway_id = gateway_id
         self._open_classification_queue = open_classification_queue
@@ -17,13 +17,20 @@ class Server:
         self._lock = threading.Lock()
         self._clients = []
         self._stopping = False
+        self._results = results
+        if results is not None:
+            results.on_failure = self.stop
 
     # Escucha conexiones y lanza un hilo por cliente hasta que se pida parar.
     def run(self):
-        self._server_socket = socket.create_server(self._address)
-        logging.info(f"Escuchando en {self._address[0]}:{self._address[1]}")
         try:
-            while True:
+            if self._results is not None:
+                self._results.start()
+            if self._stopping:
+                return
+            self._server_socket = socket.create_server(self._address)
+            logging.info(f"Escuchando en {self._address[0]}:{self._address[1]}")
+            while not self._stopping:
                 try:
                     client_socket, address = self._server_socket.accept()
                 except OSError:
@@ -35,13 +42,18 @@ class Server:
                     self._clients.append((handler, client_socket))
                 handler.start()
         finally:
-            self._server_socket.close()
+            if self._server_socket is not None:
+                self._server_socket.close()
             self._stop_clients()
+            if self._results is not None:
+                self._results.close()
         logging.info("Gateway detenido")
 
     # Deja de aceptar clientes, destrabando el accept desde el handler de SIGTERM.
     def stop(self):
         self._stopping = True
+        if self._server_socket is None:
+            return
         try:
             self._server_socket.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -65,6 +77,7 @@ class Server:
         client_id = uuid.uuid4().hex
         logging.info(f"Cliente {client_id} conectado desde {address[0]}:{address[1]}")
         classification_queue = None
+        session = self._results.register(client_id, client_socket) if self._results is not None else None
         batches = 0
         with client_socket:
             try:
@@ -75,7 +88,14 @@ class Server:
                         self._publish_articles(classification_queue, client_id, articles.decode_batch(value))
                         batches += 1
                     elif msg_type == external.MsgType.END_OF_DATA:
+                        if self._results is not None:
+                            self._results.finish_input(client_id)
                         self._publish_end_of_data(classification_queue, client_id, batches)
+                        classification_queue.close()
+                        classification_queue = None
+                        if session is not None:
+                            while not self._stopping and not session.done.wait(1):
+                                pass
                         return
             except ConnectionError:
                 if not self._stopping:
@@ -87,6 +107,8 @@ class Server:
             finally:
                 if classification_queue is not None:
                     classification_queue.close()
+                if self._results is not None:
+                    self._results.unregister(client_id)
 
     # Publica un batch de articulos del cliente en la cola de clasificacion.
     def _publish_articles(self, classification_queue, client_id, article_list):

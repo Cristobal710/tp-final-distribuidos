@@ -42,7 +42,7 @@ class WordsOutput:
         return sent
 
     # Manda el aviso de fin a todos los shards, armado con lo que se le mando a cada uno.
-    def send_eofs(self, sent, encode):
+    def send_eofs(self, client_id, sent, encode):
         for name, queue in zip(self._names, self._queues):
             queue.send(encode(sent.get(name, 0)))
 

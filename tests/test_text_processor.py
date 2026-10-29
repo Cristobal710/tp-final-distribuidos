@@ -97,7 +97,7 @@ class WordsOutputTest(unittest.TestCase):
 
     def test_eofs_go_to_every_shard_with_what_each_one_received(self):
         output = self.make(shards=3)
-        output.send_eofs({"palabras.1": 4}, lambda count, query=None: internal.encode_eof("c1", 0, "tp", 5, 6, count, query))
+        output.send_eofs("c1", {"palabras.1": 4}, lambda count, query=None: internal.encode_eof("c1", 0, "tp", 5, 6, count, query))
         self.assertEqual(
             [[value["sent"] for _, value in queue.eofs()] for queue in self.queues], [[0], [4], [0]]
         )

@@ -20,7 +20,7 @@ class ProcessedText(NamedTuple):
 # Procesa los textos de los clientes con un hilo de datos y coordina los EOF de los clasificadores con los demas
 # Text processor en un hilo de control. Cada consulta que lo usa aporta una salida con estos metodos:
 #   send_batch(client_id, gateway_id, texts) -> {cola: mensajes mandados}
-#   send_eofs(sent, encode) -> manda encode(cantidad, query=None) a cada cola
+#   send_eofs(client_id, sent, encode) -> manda encode(cantidad, query=None) a cada cola
 #   close()
 class TextProcessor:
 
@@ -118,6 +118,7 @@ class TextProcessor:
         if client_id in self._finished:
             for output in self._outputs:
                 output.send_eofs(
+                    client_id,
                     sent,
                     lambda count, query=None: internal.encode_late_eof(
                         client_id, gateway_id, self._origin, 1, count, query
@@ -150,6 +151,7 @@ class TextProcessor:
         sent = self._sent.pop(client_id, {})
         for output in self._outputs:
             output.send_eofs(
+                client_id,
                 sent,
                 lambda count, query=None: internal.encode_eof(
                     client_id, gateway_id, self._origin, processed, total, count, query

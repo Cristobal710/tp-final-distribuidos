@@ -189,6 +189,57 @@ class InternalTest(unittest.TestCase):
         self.assertEqual(msg_type, internal.MsgType.RESULTS)
         self.assertEqual((value["query"], value["rows"]), (1, [["https://en.wikipedia.org/wiki/Ada", 1009843200000]]))
 
+    def test_image_requests_round_trip(self):
+        images = [internal.ImageRequest("Émilie", "https://wiki/Emilie", "https://images/emilie.jpg"),
+                  internal.ImageRequest(None, None, None)]
+        msg_type, value = internal.decode(internal.encode_images("c2", 7, images))
+        self.assertEqual(msg_type, internal.MsgType.IMAGES)
+        self.assertEqual((value["client_id"], value["gateway_id"], value["images"]), ("c2", 7, images))
+
+    def test_image_requests_require_gateway_and_three_columns(self):
+        for fields in ({"rows": [["Ada", "url", "image"]]}, {"gateway_id": 1, "rows": [["Ada", "url"]]}):
+            with self.subTest(fields=fields), self.assertRaises(external.ProtocolError):
+                internal.decode(external.serialize({"type": internal.MsgType.IMAGES, "client_id": "c1", **fields}))
+
+    def test_q2_results_preserve_every_byte(self):
+        image = bytes(range(256))
+        row = internal.Q2Result("Ada", "https://wiki/Ada", list(image))
+        msg_type, value = internal.decode(internal.encode_results("c1", 2, 2, [row]))
+        self.assertEqual(msg_type, internal.MsgType.RESULTS)
+        self.assertEqual((value["client_id"], value["gateway_id"], value["query"]), ("c1", 2, 2))
+        self.assertEqual(bytes(value["rows"][0][2]), image)
+
+    def test_q5_partial_and_final_average_round_trip(self):
+        for encode, row_type, kind, key in (
+            (internal.encode_partial_average, internal.PartialAverage, internal.MsgType.PARTIAL_AVERAGE, "partial_average"),
+            (internal.encode_average, internal.FinalAverage, internal.MsgType.FINAL_AVERAGE, "average"),
+        ):
+            for row in (row_type(2 ** 60 + 1, 3), row_type(0, 0), row_type(0, 5)):
+                with self.subTest(kind=kind, row=row):
+                    msg_type, value = internal.decode(encode("c1", 7, row))
+                    self.assertEqual((msg_type, value["client_id"], value["gateway_id"], value[key]), (kind, "c1", 7, row))
+
+    def test_q5_candidates_round_trip_and_results_use_query_five(self):
+        rows = [internal.CandidateArticle("https://wiki/A", 10), internal.CandidateArticle(None, 0)]
+        kind, value = internal.decode(internal.encode_candidates("c1", 2, rows))
+        self.assertEqual((kind, value["candidates"]), (internal.MsgType.CANDIDATES, rows))
+        _, result = internal.decode(internal.encode_results("c1", 2, 5, [internal.Q5Result(*row) for row in rows]))
+        self.assertEqual((result["query"], result["rows"]), (5, [list(row) for row in rows]))
+
+    def test_q5_rejects_invalid_counts_and_statistics_shapes(self):
+        for kind in (internal.MsgType.PARTIAL_AVERAGE, internal.MsgType.FINAL_AVERAGE):
+            for rows in ([], [[1, 1], [2, 1]], [[1, 0]], [[-1, 1]], [[1, -1]], [[True, 1]], [[1.5, 1]], [[1, "2"]]):
+                with self.subTest(kind=kind, rows=rows), self.assertRaises(external.ProtocolError):
+                    internal.decode(external.serialize({"type": kind, "client_id": "c1", "gateway_id": 0, "rows": rows}))
+        for row in (("url", -1), ("url", True), ("url", 1.5), ({}, 1)):
+            with self.subTest(row=row), self.assertRaises(external.ProtocolError):
+                internal.decode(internal.encode_candidates("c1", 0, [row]))
+
+    def test_q5_messages_require_gateway_id(self):
+        for kind in (internal.MsgType.PARTIAL_AVERAGE, internal.MsgType.CANDIDATES, internal.MsgType.FINAL_AVERAGE):
+            with self.subTest(kind=kind), self.assertRaises(external.ProtocolError):
+                internal.decode(external.serialize({"type": kind, "client_id": "c1", "rows": []}))
+
     def test_eof_with_query_round_trip(self):
         msg_type, value = internal.decode(internal.encode_eof("c1", 0, "classifier_1", 3, 10, 2, query=1))
         self.assertEqual(msg_type, internal.MsgType.EOF)

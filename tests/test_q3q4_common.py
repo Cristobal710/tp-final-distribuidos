@@ -189,15 +189,16 @@ class ReconnectingPublisherTest(unittest.TestCase):
         self.assertTrue(self.opened[0].closed)
         self.assertEqual(self.opened[1].sent, [b"2"])
 
-    def test_retries_once_with_a_new_connection_if_sending_fails(self):
+    def test_uncertain_publication_is_not_retried(self):
         publisher = self.make()
         publisher.send(b"1")
         self.opened[0].fail_times = 1
-        publisher.send(b"2")
-        self.assertEqual(len(self.opened), 2)
-        self.assertEqual(self.opened[1].sent, [b"2"])
+        with self.assertRaises(ConnectionError):
+            publisher.send(b"2")
+        self.assertEqual(len(self.opened), 1)
+        self.assertTrue(self.opened[0].closed)
 
-    def test_gives_up_if_the_retry_fails_too(self):
+    def test_initial_publication_failure_propagates(self):
         self.fail_next = 1
         publisher = ReconnectingPublisher(lambda: FakePublisher(1), 30, lambda: self.now)
         with self.assertRaises(ConnectionError):
