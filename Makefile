@@ -65,6 +65,7 @@ hashes-subsets:
 expected:
 	docker compose -f docker-compose.yaml --profile tools build expected
 	docker compose -f docker-compose.yaml --profile tools run --rm expected
+	MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py /results/expected
 .PHONY: expected
 
 pack-expected:
