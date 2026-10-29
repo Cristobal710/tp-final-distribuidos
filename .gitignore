@@ -218,10 +218,12 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Dataset bajado de Kaggle y credenciales
-datasets/
+# Descargas parciales y credenciales de Kaggle
 *.part
 kaggle.json
+
+# Resultados que escriben los clientes
+results/
 
 # Full-suite inputs, expected outputs and run reports
 .artifacts/

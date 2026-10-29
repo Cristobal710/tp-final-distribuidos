@@ -1,0 +1,27 @@
+# Subset B, lo manda client_1. Una linea por articulo: archivo del dataset de Kaggle y url.
+# Q1
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Naevala_perexigua
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Acianthera_pectinata
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Meshal_Al-Mouri
+# Q1 y Q2
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Otto-Ernst_Flick
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Clara_Podda
+# Q1 pero no Q2: biografia sin imagen
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Arron_Spiessberger-Parker
+# Desde 2021: Q5 no (village) / Q5 si
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Brec%C3%AB
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Un_vers,_%C3%A7a_va
+# Biographie con imagen pero de 2023: no Q2, Q5 si
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Davor_Zdravkovski
+# Sin fecha de creacion
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Pierre-Marie_Deloof
+# Sin abstract
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Dead_dove
+# Frances hasta 2020
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Smallingerland
+# Q2 en frances: seccion Biographie
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Azmeraw_Bekele
+# Biographie sin imagen: no Q2
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/J%C3%B3n_Kn%C3%BAtur
+# Frances desde 2021: Q5 no (village)
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Tugford

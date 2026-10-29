@@ -16,6 +16,43 @@ Sistema distribuido que analiza los artículos en inglés y francés del dataset
 cliente contra todos los nodos y compara Q1–Q5 recibidas por TCP contra un calculo independiente.
 Requiere Docker, Python 3 e Internet para las imagenes reales. Ver [detalle de la suite](tests/full_suite/README.md).
 
+`make run`: borra los resultados anteriores de `client_0`, inicia los contenedores, sigue los logs del cliente y termina cuando el cliente termina (falla si el cliente sale con error).
+
+Cada cliente escribe sus resultados en `results/<cliente>/`, un archivo JSONL por consulta (`q1.jsonl` … `q5.jsonl`).
+
+### Validación de resultados
+
+`make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/`. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose.
+
+`make pack-expected`: comprime `results/expected/` en `expected/`, que es la carpeta versionada con los resultados esperados del dataset completo.
+
+`make compare`: compara `results/client_0/` contra `expected/` y dice, por consulta, si coincide o qué filas faltan y sobran (`make compare CLIENT=client_1` para otro cliente, `make compare EXPECTED=/results/expected` para comparar contra lo recién calculado sin comprimir). Q4 se compara en orden y Q2 solo por nombre y url, porque el sistema devuelve la imagen y lo esperado su url.
+
+`make hashes`: calcula un sha256 por consulta de `results/client_0/`, lo guarda en `results/client_0/hashes.txt` y lo muestra al lado del de `expected/hashes.txt`, diciendo si coincide.
+
+`make expected-hashes`: regenera `expected/hashes.txt` a partir de `expected/`. Hace falta solo cuando cambian los esperados.
+
+Los esperados son CSV y los resultados del cliente JSONL. Antes de comparar o calcular el hash, cada fila del cliente se pasa al formato del CSV: la fecha de Q1 de milisegundos a ISO en UTC y los números a texto. El hash de cada consulta es el sha256 de sus filas, sin encabezado, escritas como CSV y ordenadas (Q4 sin ordenar, porque el orden es parte de la respuesta).
+
+### Subsets propios y varios clientes
+
+`datasets/subset_a` y `datasets/subset_b` son dos subsets de 15 artículos elegidos a mano, uno por cliente, que cubren los casos de cada consulta (biografía con y sin imagen, antes y después de 2020, sin fecha, sin abstract, palabras compartidas entre idiomas). Cada uno tiene:
+
+- `articles.txt`: la lista elegida, una línea por artículo con su archivo del dataset de Kaggle y su url.
+- `articles.parquet`: los artículos tal cual vienen en Kaggle, que es lo que manda el cliente.
+- `articles.json`: los mismos artículos en texto, para leerlos.
+- `expected/`: el resultado esperado de cada consulta y sus hashes.
+
+`make subsets`: arma `articles.parquet`, `articles.json` y `expected/` de cada subset a partir de su `articles.txt`. Hace falta solo cuando cambia la lista.
+
+`make run-subsets`: corre el sistema con `client_0` mandando `subset_a` y `client_1` mandando `subset_b` al mismo tiempo (`docker-compose.subsets.yaml`), y termina cuando terminan los dos.
+
+`make hashes-subsets`: compara los hashes de `results/client_0/` contra `subset_a` y los de `results/client_1/` contra `subset_b`.
+
+Para ver el detalle de un cliente: la entrada en `datasets/subset_a/articles.json`, lo esperado en `datasets/subset_a/expected/` y lo obtenido en `results/client_0/`. `make compare CLIENT=client_1 EXPECTED=/datasets/subset_b/expected` muestra qué filas faltan o sobran.
+
+Reglas que usa el cálculo directo: el período sale de `date_created` (sin fecha, el artículo no entra en Q1, Q2 ni Q5); las palabras son `\b\w+\b` en minúsculas, sin números ni stopwords de NLTK en inglés y francés, contadas una vez por abstract; Q5 compara la cantidad de palabras de cada abstract desde 2021 contra el promedio de los abstracts hasta 2020.
+
 ## Estructura
 
 ```
@@ -108,7 +145,18 @@ src/
       client_files.py     un archivo por cliente para guardar filas hasta que termina
   rabbitmq/
     Dockerfile
+  tools/
+    expected/
+      expected.py         calcula los resultados esperados de cada consulta directo sobre el dataset
+      compare.py          compara los resultados de un cliente contra los esperados
+      hashes.py           calcula un hash por consulta y lo compara contra los hashes esperados
+      subset.py           arma un subset con los articulos elegidos a mano
+      Dockerfile
+      requirements.txt
+datasets/                 subsets propios elegidos a mano, uno por cliente
+expected/                 resultados esperados del dataset completo
 tests/                    tests
+docker-compose.subsets.yaml  agrega client_1 y hace que cada cliente mande su subset
 ```
 
 ## Variables de entorno
@@ -402,5 +450,5 @@ El gateway cierra entonces el socket; el cliente exige ese cierre y falla ante r
 Los resultados se escriben progresivamente en `q1.jsonl` a `q5.jsonl`. Q2 recibe el array original de bytes,
 guarda cada imagen en `images/<sha256>.bin` y escribe `[name, url, sha256, cantidad_bytes]` en su JSONL.
 Al terminar correctamente se escribe `summary.json`, con filas enviadas, filas recibidas y consultas completas.
-Para conservar resultados de un cliente normal en Docker hay que montar `RESULT_DIR` en el host.
+Para conservar resultados de un cliente normal en Docker hay que montar `RESULT_DIR` en el host. El compose ya lo hace con `client_0` en `results/client_0/`.
 

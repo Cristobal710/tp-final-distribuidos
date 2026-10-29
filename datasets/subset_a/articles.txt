@@ -1,0 +1,27 @@
+# Subset A, lo manda client_0. Una linea por articulo: archivo del dataset de Kaggle y url.
+# Q1
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Gaetano_Antoniazzi
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Villa_Vilaque
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Pardosa_occidentalis
+# Q1 y Q2: seccion Biography / biography solo en el texto
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Gunnar_Smoliansky
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Terhemba_Shija
+# Q1 pero no Q2: biografia sin imagen
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Dubh_Essa_Bean_U%C3%AD_Dubhda
+# Desde 2021: Q5 si / Q5 no por poco (football)
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Cyrtodactylus_rivularis
+enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Anwar_Salama
+# Biografia con imagen pero de 2021: no Q2, Q5 si
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Aidi_Vallik
+# Sin fecha de creacion
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Lake_Langui_Layo
+# Sin abstract
+enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Patrice_Bail
+# Frances hasta 2020
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Inalegolo
+# Q2 en frances: seccion Biographie (football)
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Mitko_Trendafilov
+# Biographie sin imagen: no Q2
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Pierre_Boutelleau
+# Frances desde 2021: Q5 no
+frwiki/data/frwiki_namespace_0_00030.parquet https://fr.wikipedia.org/wiki/Godon_de_Metz

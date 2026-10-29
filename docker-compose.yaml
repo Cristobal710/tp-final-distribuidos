@@ -1,3 +1,6 @@
+x-dataset: &dataset
+  DATASET_ROWS_PER_PATTERN: 0
+
 services:
   rabbitmq:
     build:
@@ -253,6 +256,22 @@ services:
     depends_on:
       - gateway
     environment:
+      <<: *dataset
       SERVER_HOST: gateway
-      DATASET_ROWS_PER_PATTERN: 20000
       MAX_BATCH_ROWS: 100
+      RESULT_DIR: /results
+    volumes:
+      - ./results/client_0:/results
+
+  expected:
+    profiles: [tools]
+    build:
+      context: ./src
+      dockerfile: tools/expected/Dockerfile
+    image: tp-expected
+    environment:
+      <<: *dataset
+    volumes:
+      - ./results:/results
+      - ./expected:/expected
+      - ./datasets:/datasets

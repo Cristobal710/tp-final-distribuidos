@@ -6,6 +6,7 @@ for path in (SRC, os.path.join(SRC, "client"), os.path.join(SRC, "gateway"), os.
              os.path.join(SRC, "nodes", "text_processor"), os.path.join(SRC, "nodes", "word_counter"),
              os.path.join(SRC, "nodes", "join_q3"), os.path.join(SRC, "nodes", "top20"),
              os.path.join(SRC, "nodes", "filter_biography"), os.path.join(SRC, "nodes", "image_downloader"),
-             os.path.join(SRC, "nodes", "average"), os.path.join(SRC, "nodes", "comparator")):
+             os.path.join(SRC, "nodes", "average"), os.path.join(SRC, "nodes", "comparator"),
+             os.path.join(SRC, "tools", "expected")):
     if path not in sys.path:
         sys.path.insert(0, path)

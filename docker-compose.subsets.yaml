@@ -1,0 +1,24 @@
+services:
+  client_0:
+    environment:
+      LOCAL_DATASET_DIR: /datasets/subset_a
+      MAX_BATCH_ROWS: 2
+    volumes:
+      - ./datasets:/datasets:ro
+
+  client_1:
+    build:
+      context: ./src
+      dockerfile: client/Dockerfile
+    image: tp-client
+    container_name: client_1
+    depends_on:
+      - gateway
+    environment:
+      SERVER_HOST: gateway
+      LOCAL_DATASET_DIR: /datasets/subset_b
+      RESULT_DIR: /results
+      MAX_BATCH_ROWS: 2
+    volumes:
+      - ./results/client_1:/results
+      - ./datasets:/datasets:ro
