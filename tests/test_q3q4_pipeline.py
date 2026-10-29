@@ -136,7 +136,7 @@ class PipelineTest(unittest.TestCase):
         for counter_id in range(WORD_COUNTERS):
             counter = WordCounter(
                 counter_id, FakeInputQueue(shard_queues[counter_id].messages),
-                ClientFiles(self.directory.name, f"wc{counter_id}"), join_queues, top_queues,
+                [ClientFiles(self.directory.name, f"wc{counter_id}_{bucket}") for bucket in range(4)], join_queues, top_queues,
                 TEXT_PROCESSORS, TOP_SIZE, 5, 1_000_000,
             )
             with self.assertLogs(level="INFO"):

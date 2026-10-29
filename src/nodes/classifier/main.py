@@ -19,13 +19,14 @@ RESULTS_QUEUE_PREFIX = os.environ["RESULTS_QUEUE_PREFIX"]
 IDLE_SECONDS = float(os.environ["PUBLISHER_IDLE_SECONDS"])
 
 
+# Arma un publicador que abre la cola de salida recien cuando la usa y la renueva si estuvo ociosa.
+def publisher_of(queue_name):
+    return ReconnectingPublisher(lambda: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, queue_name), IDLE_SECONDS)
+
+
 # Abre la cola de resultados de un gateway.
 def open_results_queue(gateway_id):
     return publisher_of(f"{RESULTS_QUEUE_PREFIX}.{gateway_id}")
-
-
-def publisher_of(queue_name):
-    return ReconnectingPublisher(lambda: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, queue_name), IDLE_SECONDS)
 
 
 # Cierra cada conexion aunque falle alguna.
@@ -48,7 +49,8 @@ def main():
     control_output = ReconnectingPublisher(
         lambda: MessageMiddlewareExchangeRabbitMQ(
             RABBITMQ_HOST, CONTROL_EXCHANGE, [f"{CONTROL_EXCHANGE}.{i}" for i in range(CLASSIFIER_AMOUNT)]
-        ), IDLE_SECONDS,
+        ),
+        IDLE_SECONDS,
     )
     text_queue = publisher_of(TEXT_QUEUE)
     bio_queue = publisher_of(BIO_QUEUE)

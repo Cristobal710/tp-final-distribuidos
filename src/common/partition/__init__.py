@@ -1,1 +1,1 @@
-from .partition import shard_of
+from .partition import bucket_of, shard_of

@@ -17,6 +17,7 @@ WORDS_QUEUE_PREFIX = os.environ["WORDS_QUEUE_PREFIX"]
 JOIN_Q3_QUEUE_PREFIX = os.environ["JOIN_Q3_QUEUE_PREFIX"]
 TOP20_QUEUE_PREFIX = os.environ["TOP20_QUEUE_PREFIX"]
 DATA_DIR = os.environ["DATA_DIR"]
+WORD_COUNTER_BUCKETS = int(os.environ["WORD_COUNTER_BUCKETS"])
 TOP_SIZE = int(os.environ["TOP_SIZE"])
 MAX_BATCH_ROWS = int(os.environ["MAX_BATCH_ROWS"])
 MAX_BATCH_BYTES = int(os.environ["MAX_BATCH_BYTES"])
@@ -33,8 +34,11 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{WORDS_QUEUE_PREFIX}.{WORD_COUNTER_ID}")
+    buckets = [
+        ClientFiles(DATA_DIR, f"word_counter_{WORD_COUNTER_ID}_{bucket}") for bucket in range(WORD_COUNTER_BUCKETS)
+    ]
     counter = WordCounter(
-        WORD_COUNTER_ID, input_queue, ClientFiles(DATA_DIR, f"word_counter_{WORD_COUNTER_ID}"),
+        WORD_COUNTER_ID, input_queue, buckets,
         [publisher_of(f"{JOIN_Q3_QUEUE_PREFIX}.{i}") for i in range(JOIN_Q3_AMOUNT)],
         [publisher_of(f"{TOP20_QUEUE_PREFIX}.{i}") for i in range(TOP20_AMOUNT)],
         TEXT_PROCESSOR_AMOUNT, TOP_SIZE, MAX_BATCH_ROWS, MAX_BATCH_BYTES,

@@ -63,7 +63,7 @@ src/
       requirements.txt
     word_counter/
       main.py
-      word_counter.py     guarda en disco las palabras de su shard y, al terminar un cliente, manda las compartidas (Q3) y su top (Q4)
+      word_counter.py     guarda en disco las palabras de su shard en varios archivos y, al terminar un cliente, los procesa de a uno y manda las compartidas (Q3) y su top (Q4)
       Dockerfile
       requirements.txt
     join_q3/
@@ -95,7 +95,7 @@ src/
       middleware.py       interfaz del middleware
       middleware_rabbitmq.py  implementacion con RabbitMQ
     partition/
-      partition.py        hash estable para repartir claves entre instancias
+      partition.py        hashes estables para repartir claves entre instancias y entre archivos de una instancia
     protocol/
       external.py         mensajes entre cliente y gateway y serializacion
       internal.py         mensajes entre nodos
@@ -109,8 +109,6 @@ src/
   rabbitmq/
     Dockerfile
 tests/                    tests
-tools/
-  check_q3_q4.py          compara Q3 y Q4 contra un calculo directo, leyendo la cola de resultados
 ```
 
 ## Variables de entorno
@@ -238,7 +236,8 @@ verifica este comportamiento contra un broker real.
 | `WORDS_QUEUE_PREFIX` | Prefijo de su cola, a la que se le agrega `.<WORD_COUNTER_ID>` | `palabras` |
 | `JOIN_Q3_QUEUE_PREFIX` | Prefijo de las colas del Join Q3 | `join_q3` |
 | `TOP20_QUEUE_PREFIX` | Prefijo de las colas del Top 20 final | `top20` |
-| `DATA_DIR` | Directorio donde guarda un archivo por cliente | `/data` |
+| `DATA_DIR` | Directorio donde guarda los archivos de cada cliente | `/data` |
+| `WORD_COUNTER_BUCKETS` | Archivos por cliente entre los que reparte las palabras. Al terminar procesa uno a la vez, así que más archivos es menos memoria | `16` |
 | `TOP_SIZE` | Cantidad de palabras de su top local | `20` |
 | `MAX_BATCH_ROWS` | Máximo de filas por mensaje | `2000` |
 | `MAX_BATCH_BYTES` | Máximo de bytes por mensaje | `1048576` |
@@ -337,7 +336,7 @@ Q3 y Q4 comparten el Text processor con Q5. El Text processor saca las palabras 
 
 La salida de Q3 y Q4 es `WordsOutput`. Q5 usa `Q5Output`, registrada junto a ella en `text_processor/main.py`. Los tipos de mensaje 7 a 9 de `internal.py` son de Q3 y Q4; los tipos 11 a 13 son de Q5.
 
-Cada palabra va al contador `shard_of(palabra, WORD_COUNTER_AMOUNT)`. El contador guarda en disco lo que le llega de cada cliente y, cuando terminan los datos, manda las palabras que aparecen en artículos en inglés y en francés al Join Q3 y sus `TOP_SIZE` palabras con más artículos al Top 20 final, ambos elegidos por `shard_of(client_id, cantidad)`. El Join Q3 publica las palabras en `resultados.<gateway_id>` como Q3, y el Top 20 final publica las 20 primeras, con empate por orden alfabetico, como Q4.
+Cada palabra va al contador `shard_of(palabra, WORD_COUNTER_AMOUNT)`. El contador guarda en disco lo que le llega de cada cliente, repartido en `WORD_COUNTER_BUCKETS` archivos según `bucket_of(palabra, WORD_COUNTER_BUCKETS)`, así todas las apariciones de una palabra quedan en el mismo archivo. Cuando terminan los datos, procesa los archivos de a uno (en memoria hay un solo archivo a la vez) y manda las palabras que aparecen en artículos en inglés y en francés al Join Q3 y sus `TOP_SIZE` palabras con más artículos al Top 20 final, ambos elegidos por `shard_of(client_id, cantidad)`. El Join Q3 publica las palabras en `resultados.<gateway_id>` como Q3, y el Top 20 final publica las 20 primeras, con empate por orden alfabetico, como Q4.
 
 ### EOF
 

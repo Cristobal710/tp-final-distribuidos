@@ -31,6 +31,14 @@ class PartitionTest(unittest.TestCase):
         shards = {partition.shard_of(f"palabra{i}", 4) for i in range(200)}
         self.assertEqual(shards, {0, 1, 2, 3})
 
+    def test_bucket_is_stable_and_inside_the_range(self):
+        self.assertEqual(partition.bucket_of("hola", 16), partition.bucket_of("hola", 16))
+        self.assertTrue(all(0 <= partition.bucket_of(f"palabra{i}", 16) < 16 for i in range(200)))
+
+    def test_the_words_of_one_shard_use_every_bucket(self):
+        words = [f"palabra{i}" for i in range(2000) if partition.shard_of(f"palabra{i}", 2) == 0]
+        self.assertEqual({partition.bucket_of(word, 16) for word in words}, set(range(16)))
+
 
 class ClientFilesTest(unittest.TestCase):
 
@@ -85,6 +93,14 @@ class UpstreamTrackerTest(unittest.TestCase):
         tracker = UpstreamTracker(2)
         tracker.add_eof(eof("c1", "a", 3, 5, 1))
         self.assertFalse(tracker.is_complete("c1"))
+        tracker.add_eof(eof("c1", "b", 2, 5, 1))
+        self.assertTrue(tracker.is_complete("c1"))
+        self.assertEqual(tracker.total_sent("c1"), 2)
+
+    def test_a_repeated_eof_of_the_same_origin_is_counted_once(self):
+        tracker = UpstreamTracker(2)
+        tracker.add_eof(eof("c1", "a", 3, 5, 1))
+        tracker.add_eof(eof("c1", "a", 3, 5, 1))
         tracker.add_eof(eof("c1", "b", 2, 5, 1))
         self.assertTrue(tracker.is_complete("c1"))
         self.assertEqual(tracker.total_sent("c1"), 2)
