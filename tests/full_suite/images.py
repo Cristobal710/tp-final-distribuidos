@@ -1,13 +1,18 @@
 """Independent live-image reference, deliberately separate from the application downloader."""
 import hashlib
+import os
+import threading
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
 
+from common.request_throttle import RequestThrottle
+
 MAX_IMAGE_BYTES = 1048576
 USER_AGENT = "DistributedWikipediaFullSuite/1.0 (local integration test)"
+THROTTLE = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "1.5")))
 
 
 class ImageHostRateLimited(RuntimeError):
@@ -28,6 +33,7 @@ def retry_after(value):
 
 def snapshot_image(url, attempts=3, timeout=20, max_bytes=MAX_IMAGE_BYTES):
     for attempt in range(attempts):
+        THROTTLE.wait(threading.Event())
         delay = 2 ** attempt
         try:
             with requests.get(url, stream=True, timeout=timeout,

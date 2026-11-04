@@ -66,7 +66,8 @@ def _read_image(response, deadline, max_bytes, stop_event):
     return bytes(data)
 
 
-def download_image(image_url, *, timeout, attempts, max_bytes, stop_event=None, retry_delay=1.0):
+def download_image(image_url, *, timeout, attempts, max_bytes, stop_event=None, retry_delay=1.0,
+                   throttle=None, cache=None):
     if not math.isfinite(timeout) or timeout <= 0 or attempts < 1 or max_bytes < 1:
         raise ValueError("Los limites de descarga tienen que ser positivos y finitos")
     if not math.isfinite(retry_delay) or retry_delay < 0:
@@ -83,13 +84,22 @@ def download_image(image_url, *, timeout, attempts, max_bytes, stop_event=None, 
         request = Request(image_url, headers={"User-Agent": USER_AGENT})
     except ValueError as e:
         raise DownloadError(f"URL de imagen invalida: {e}") from e
+    if cache is not None:
+        cached = cache.get(image_url, max_bytes)
+        if cached is not None:
+            return cached
     for attempt in range(attempts):
         _check_cancelled(stop_event)
+        if throttle is not None and not throttle.wait(stop_event):
+            raise DownloadCancelled()
         delay = retry_delay * (2 ** attempt)
         try:
             deadline = time.monotonic() + timeout
             with urlopen(request, timeout=timeout) as response:
-                return _read_image(response, deadline, max_bytes, stop_event)
+                image = _read_image(response, deadline, max_bytes, stop_event)
+            if cache is not None:
+                cache.put(image_url, image)
+            return image
         except HTTPError as e:
             delay = max(delay, _retry_after(e.headers))
             e.close()

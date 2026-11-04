@@ -9,7 +9,9 @@ from common.middleware import MessageMiddlewareExchangeRabbitMQ, MessageMiddlewa
 from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
 from common.protocol.external import MAX_VALUE_SIZE
 from common.publisher import ReconnectingPublisher
+from common.request_throttle import RequestThrottle
 from download import download_image
+from image_cache import ImageCache
 from image_downloader import ImageDownloader
 
 
@@ -30,13 +32,17 @@ def main():
     timeout = float(os.environ["DOWNLOAD_TIMEOUT_SECONDS"])
     attempts = int(os.environ["DOWNLOAD_ATTEMPTS"])
     retry_delay = float(os.environ["DOWNLOAD_RETRY_SECONDS"])
+    throttle = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "1.5")))
+    cache_dir = os.environ.get("IMAGE_CACHE_DIR", "/cache/q2")
+    cache_max_bytes = int(os.environ.get("IMAGE_CACHE_MAX_BYTES", "268435456"))
     max_image_bytes = int(os.environ["MAX_IMAGE_BYTES"])
     max_result_bytes = int(os.environ["MAX_RESULT_BYTES"])
     idle_seconds = float(os.environ["PUBLISHER_IDLE_SECONDS"])
     if (not 0 <= downloader_id < downloader_amount or min(filter_amount, attempts, max_image_bytes) < 1
             or not 0 < max_result_bytes <= MAX_VALUE_SIZE or not math.isfinite(timeout) or timeout <= 0
-            or not math.isfinite(retry_delay) or retry_delay < 0):
+            or not math.isfinite(retry_delay) or retry_delay < 0 or cache_max_bytes < 0):
         raise ValueError("Configuracion invalida del descargador de imagenes")
+    cache = ImageCache(cache_dir, cache_max_bytes) if cache_dir and cache_max_bytes else None
     host = os.environ["RABBITMQ_HOST"]
     exchange = os.environ["CONTROL_EXCHANGE"]
     results_prefix = os.environ["RESULTS_QUEUE_PREFIX"]
@@ -61,7 +67,7 @@ def main():
         worker = ImageDownloader(
             downloader_id, input_queue, control_input, control_output, open_results_queue,
             partial(download_image, timeout=timeout, attempts=attempts, max_bytes=max_image_bytes,
-                    retry_delay=retry_delay),
+                    retry_delay=retry_delay, throttle=throttle, cache=cache),
             filter_amount, max_result_bytes, PREFETCH_COUNT,
         )
         connections.append(worker)

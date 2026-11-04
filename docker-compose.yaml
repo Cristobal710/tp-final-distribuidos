@@ -95,6 +95,11 @@ services:
       IMAGE_DOWNLOADER_ID: 0
       IMAGE_DOWNLOADER_AMOUNT: 2
       FILTER_BIOGRAPHY_AMOUNT: 2
+      DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-1.5}
+      IMAGE_CACHE_DIR: /cache/q2
+      IMAGE_CACHE_MAX_BYTES: ${IMAGE_CACHE_MAX_BYTES:-268435456}
+    volumes:
+      - ./.cache/q2:/cache/q2
 
   image_downloader_1:
     build:
@@ -108,6 +113,11 @@ services:
       IMAGE_DOWNLOADER_ID: 1
       IMAGE_DOWNLOADER_AMOUNT: 2
       FILTER_BIOGRAPHY_AMOUNT: 2
+      DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-1.5}
+      IMAGE_CACHE_DIR: /cache/q2
+      IMAGE_CACHE_MAX_BYTES: ${IMAGE_CACHE_MAX_BYTES:-268435456}
+    volumes:
+      - ./.cache/q2:/cache/q2
 
   text_processor_0:
     build:

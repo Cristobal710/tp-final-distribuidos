@@ -1,16 +1,105 @@
 import base64
+import tempfile
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock, patch
 
 from common.protocol import internal
+from common.request_throttle import RequestThrottle
 from download import DownloadCancelled, DownloadError, download_image
+from image_cache import ImageCache
 from image_downloader import ImageDownloader
 from tests.q2_fakes import ConsumerQueue, GroupControl, OutputQueue
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=")
+
+
+class RequestThrottleTest(unittest.TestCase):
+
+    def test_spaces_request_starts_and_does_not_add_delay_after_slow_requests(self):
+        throttle = RequestThrottle(2.5)
+        stop = Mock()
+        stop.is_set.return_value = False
+        stop.wait.return_value = False
+        with patch("common.request_throttle.time.monotonic", side_effect=[10, 10, 11, 12.5, 20, 20]):
+            for _ in range(3):
+                self.assertTrue(throttle.wait(stop))
+        stop.wait.assert_called_once_with(1.5)
+
+    def test_throttle_wait_can_be_cancelled(self):
+        throttle = RequestThrottle(60)
+        stop = Mock()
+        stop.is_set.return_value = False
+        with patch("common.request_throttle.time.monotonic", return_value=10):
+            self.assertTrue(throttle.wait(stop))
+            stop.wait.return_value = True
+            self.assertFalse(throttle.wait(stop))
+        stop.wait.assert_called_once_with(60)
+
+    def test_zero_disables_pacing_and_invalid_intervals_are_rejected(self):
+        stop = Mock()
+        stop.is_set.return_value = False
+        throttle = RequestThrottle(0)
+        for _ in range(2):
+            self.assertTrue(throttle.wait(stop))
+        stop.wait.assert_not_called()
+        for interval in (-1, float("inf"), float("nan")):
+            with self.subTest(interval=interval), self.assertRaises(ValueError):
+                RequestThrottle(interval)
+
+
+class ImageCacheTest(unittest.TestCase):
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+
+    def test_replicas_and_restarts_reuse_bytes_with_current_size_limit(self):
+        cache = ImageCache(self.directory.name, 100)
+        cache.put("https://images/a", PNG)
+        other = ImageCache(self.directory.name, 100)
+        self.assertEqual(other.get("https://images/a", len(PNG)), PNG)
+        self.assertIsNone(other.get("https://images/a", len(PNG) - 1))
+        self.assertIsNone(other.get("https://images/b", 100))
+
+    def test_evicts_least_recently_used_images_and_respects_reduced_capacity(self):
+        cache = ImageCache(self.directory.name, 6)
+        with patch("image_cache.time.time_ns", side_effect=range(1, 10)):
+            cache.put("a", b"aaa")
+            cache.put("b", b"bbb")
+            self.assertEqual(cache.get("a", 100), b"aaa")
+            cache.put("c", b"ccc")
+            self.assertIsNone(cache.get("b", 100))
+            cache.put("oversize", b"x" * 7)
+            self.assertIsNone(cache.get("oversize", 100))
+            smaller = ImageCache(self.directory.name, 3)
+            self.assertIsNone(smaller.get("a", 100))
+            self.assertEqual(smaller.get("c", 100), b"ccc")
+
+    def test_cache_failure_does_not_prevent_a_download(self):
+        cache = ImageCache(self.directory.name, 100)
+        with patch("image_cache.sqlite3.connect", side_effect=OSError("disk unavailable")), \
+                self.assertLogs(level="WARNING"):
+            self.assertIsNone(cache.get("a", 100))
+            cache.put("a", PNG)
+
+    def test_simultaneous_replica_writes_keep_the_shared_capacity(self):
+        caches = [ImageCache(self.directory.name, 400) for _ in range(2)]
+        start = threading.Barrier(2)
+
+        def populate(replica):
+            start.wait(timeout=2)
+            for index in range(20):
+                caches[replica].put(f"{replica}/{index}", b"x" * 40)
+
+        with self.assertNoLogs(level="WARNING"), ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(populate, range(2)))
+        remaining = [caches[0].get(f"{replica}/{index}", 40)
+                     for replica in range(2) for index in range(20)]
+        self.assertEqual(sum(len(data) for data in remaining if data is not None), 400)
 
 
 class ImageDownloaderTest(unittest.TestCase):
@@ -213,6 +302,10 @@ class ImageDownloaderTest(unittest.TestCase):
 
 class DownloadHTTPTest(unittest.TestCase):
 
+    def setUp(self):
+        with self.call_lock:
+            self.calls.clear()
+
     @classmethod
     def setUpClass(cls):
         cls.calls = {}
@@ -289,6 +382,44 @@ class DownloadHTTPTest(unittest.TestCase):
                 self.assertEqual(self.fetch(path), PNG)
                 self.assertEqual(self.calls[path], 3)
 
+    def test_throttle_is_reused_across_images_and_includes_retries(self):
+        throttle = Mock()
+        throttle.wait.return_value = True
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        from urllib.error import HTTPError
+        rate_limited = HTTPError(self.base_url + "/image", 429, "rate limited", {}, None)
+        with patch("download.urlopen", side_effect=[rate_limited, response, response]), \
+                patch("download._read_image", return_value=PNG):
+            self.assertEqual(self.fetch("/image", throttle=throttle), PNG)
+            self.assertEqual(self.fetch("/image", throttle=throttle), PNG)
+        self.assertEqual(throttle.wait.call_count, 3)
+
+    def test_cache_hits_avoid_http_and_throttle_and_failures_are_not_cached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ImageCache(directory, 1000)
+            throttle = Mock()
+            throttle.wait.return_value = True
+            before = self.calls.get("/cached", 0)
+            self.assertEqual(self.fetch("/cached", cache=cache, throttle=throttle), PNG)
+            other = ImageCache(directory, 1000)
+            self.assertEqual(self.fetch("/cached", cache=other, throttle=throttle), PNG)
+            self.assertEqual(self.calls["/cached"] - before, 1)
+            throttle.wait.assert_called_once()
+            before = self.calls.get("/empty", 0)
+            for _ in range(2):
+                with self.assertRaises(DownloadError):
+                    self.fetch("/empty", cache=cache)
+            self.assertEqual(self.calls["/empty"] - before, 2)
+
+    def test_cancellation_during_throttle_never_starts_http(self):
+        throttle = Mock()
+        throttle.wait.return_value = False
+        with patch("download.urlopen") as open_url, self.assertRaises(DownloadCancelled):
+            self.fetch("/image", throttle=throttle)
+        open_url.assert_not_called()
+
     def test_server_retry_after_overrides_shorter_backoff(self):
         stop = Mock()
         stop.is_set.return_value = False
@@ -298,10 +429,12 @@ class DownloadHTTPTest(unittest.TestCase):
 
     def test_reference_also_honors_server_retry_after(self):
         from tests.full_suite.images import snapshot_image
-        with patch("tests.full_suite.images.time.sleep") as sleep:
+        with patch("tests.full_suite.images.time.sleep") as sleep, \
+                patch("tests.full_suite.images.THROTTLE") as throttle:
             result = snapshot_image(self.base_url + "/reference-retry-after")
         self.assertTrue(result["success"])
         sleep.assert_called_once_with(600)
+        self.assertEqual(throttle.wait.call_count, 2)
 
     def test_permanent_failures_do_not_retry(self):
         for path in ("/notfound", "/html", "/empty"):

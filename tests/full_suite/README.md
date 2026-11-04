@@ -58,7 +58,10 @@ Por ejemplo, una particion con promedio historico no entero no puede cubrir un c
 esa regla se verifica con un caso pequeno de expectativa conocida.
 
 Q2 usa descargas HTTP reales tanto para el oracle como para los nodos. Se comparan SHA-256 y cantidad de bytes
-de cada archivo recibido. No hay servidor de imagenes grabadas. Se respeta Retry-After, por lo que una limitacion
+de cada archivo recibido. El oracle siempre descarga en vivo; los nodos pueden reutilizar su cache de imagenes.
+Para forzar descargas nuevas en los nodos: `IMAGE_CACHE_MAX_BYTES=0 make test-full`.
+Ambos usan `DOWNLOAD_INTERVAL_SECONDS` (1.5 segundos por proceso por defecto), configurable desde el host.
+No hay servidor de imagenes grabadas. Se respeta Retry-After, por lo que una limitacion
 del servidor puede extender la ejecucion varios minutos. Una caida HTTP persistente, una imagen modificada o un
 resultado faltante hacen fallar la prueba; las expectativas nunca se ajustan a la salida de la aplicacion.
 

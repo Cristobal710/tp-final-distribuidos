@@ -248,6 +248,9 @@ verifica este comportamiento contra un broker real.
 | `DOWNLOAD_TIMEOUT_SECONDS` | Timeout de las operaciones de red y presupuesto por intento, revisado entre lecturas | `10` |
 | `DOWNLOAD_ATTEMPTS` | Intentos por imagen, incluyendo el primero | `3` |
 | `DOWNLOAD_RETRY_SECONDS` | Espera inicial entre intentos; se duplica en cada reintento | `1` |
+| `DOWNLOAD_INTERVAL_SECONDS` | Intervalo minimo entre inicios de intentos HTTP por descargador; `0` desactiva el throttle | `1.5` |
+| `IMAGE_CACHE_DIR` | Directorio de la cache persistente de imagenes; vacio la desactiva | `/cache/q2` |
+| `IMAGE_CACHE_MAX_BYTES` | Limite de bytes de imagenes en cache, sin contar metadatos SQLite; `0` la desactiva | `268435456` |
 | `MAX_IMAGE_BYTES` | Maximo de bytes originales de una imagen | `1048576` |
 | `MAX_RESULT_BYTES` | Maximo de bytes del resultado JSON completo | `8388608` |
 | `PUBLISHER_IDLE_SECONDS` | Tiempo ocioso antes de renovar una conexion de salida | `30` |
@@ -358,6 +361,20 @@ Image downloader procesa un batch por vez (prefetch 1), con un solo pedido HTTP 
 El hilo del consumidor sigue atendiendo RabbitMQ y es el unico que publica, actualiza contadores y hace ack.
 Cada descarga exitosa publica una fila `[name, url, image_bytes]` en `resultados.<gateway_id>`, con `query=2`.
 image_bytes es una lista de enteros de 0 a 255 que conserva el archivo original. No se acumulan imagenes entre resultados.
+
+`DOWNLOAD_INTERVAL_SECONDS` separa los inicios de intentos HTTP en cada descargador, incluidos los reintentos.
+La espera ocurre en el hilo de descarga, se puede cancelar con SIGTERM y no consume el timeout de red.
+Con dos replicas y el valor por defecto de 1.5 segundos, el ritmo sostenido combinado es de aproximadamente 1.33 intentos por segundo;
+pueden iniciar a la vez, porque no hay un coordinador global. Al agregar replicas hay que aumentar el intervalo.
+Para cambiarlo desde el host: `DOWNLOAD_INTERVAL_SECONDS=3 make run-subsets`.
+
+Los dos descargadores comparten una cache SQLite en `.cache/q2/`, montada en `/cache/q2`.
+Guarda solo descargas exitosas, por URL y con los bytes originales, y se conserva entre ejecuciones y reconstrucciones.
+Una imagen en cache evita el HTTP y la espera, pero cada articulo sigue generando su propio resultado.
+El limite por defecto es 256 MiB de imagenes; al llenarse se eliminan las menos usadas recientemente.
+`IMAGE_CACHE_MAX_BYTES=0 make run-subsets` la desactiva. Los errores de lectura o escritura de cache no impiden la descarga.
+La cache no revalida URLs: para comprobar cambios en el servidor hay que desactivarla o quitar `.cache/q2/` con el sistema detenido.
+Dos misses simultaneos de la misma URL pueden descargarla dos veces; no se coordinan descargas entre replicas.
 
 HTTP usa la biblioteca estandar de Python y un User-Agent identificable, sigue redirects y exige Content-Type image/*.
 Los timeouts, errores de conexion, HTTP 429 y 5xx se reintentan con espera exponencial y cantidad limitada de intentos.
