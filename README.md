@@ -36,7 +36,7 @@ Los esperados son CSV y los resultados del cliente JSONL. Antes de comparar o ca
 
 ### Subsets propios y varios clientes
 
-`datasets/subset_a` y `datasets/subset_b` son dos subsets de 15 artículos elegidos a mano, uno por cliente, que cubren los casos de cada consulta (biografía con y sin imagen, antes y después de 2020, sin fecha, sin abstract, palabras compartidas entre idiomas). Cada uno tiene:
+`datasets/client_0` y `datasets/client_1` son dos subsets de 15 artículos elegidos a mano, uno por cliente, que cubren los casos de cada consulta (biografía con y sin imagen, antes y después de 2020, sin fecha, sin abstract, palabras compartidas entre idiomas). Cada uno tiene:
 
 - `articles.txt`: la lista elegida, una línea por artículo con su archivo del dataset de Kaggle y su url.
 - `articles.parquet`: los artículos tal cual vienen en Kaggle, que es lo que manda el cliente.
@@ -45,11 +45,11 @@ Los esperados son CSV y los resultados del cliente JSONL. Antes de comparar o ca
 
 `make subsets`: arma `articles.parquet`, `articles.json` y `expected/` de cada subset a partir de su `articles.txt`. Hace falta solo cuando cambia la lista.
 
-`make run-subsets`: corre el sistema con `client_0` mandando `subset_a` y `client_1` mandando `subset_b` al mismo tiempo (`docker-compose.subsets.yaml`), y termina cuando terminan los dos.
+`make run-subsets`: corre el sistema con `client_0` y `client_1` mandando cada uno su subset al mismo tiempo (`docker-compose.subsets.yaml`), y termina cuando terminan los dos.
 
-`make hashes-subsets`: compara los hashes de `results/client_0/` contra `subset_a` y los de `results/client_1/` contra `subset_b`.
+`make hashes-subsets`: compara los hashes de `results/client_0/` contra `datasets/client_0/expected/` y los de `results/client_1/` contra `datasets/client_1/expected/`.
 
-Para ver el detalle de un cliente: la entrada en `datasets/subset_a/articles.json`, lo esperado en `datasets/subset_a/expected/` y lo obtenido en `results/client_0/`. `make compare CLIENT=client_1 EXPECTED=/datasets/subset_b/expected` muestra qué filas faltan o sobran.
+Para ver el detalle de un cliente: la entrada en `datasets/client_0/articles.json`, lo esperado en `datasets/client_0/expected/` y lo obtenido en `results/client_0/`. `make compare CLIENT=client_1 EXPECTED=/datasets/client_1/expected` muestra qué filas faltan o sobran.
 
 Reglas que usa el cálculo directo: el período sale de `date_created` (sin fecha, el artículo no entra en Q1, Q2 ni Q5); las palabras son `\b\w+\b` en minúsculas, sin números ni stopwords de NLTK en inglés y francés, contadas una vez por abstract; Q5 compara la cantidad de palabras de cada abstract desde 2021 contra el promedio de los abstracts hasta 2020.
 

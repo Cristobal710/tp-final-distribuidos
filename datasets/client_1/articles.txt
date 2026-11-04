@@ -1,4 +1,4 @@
-# Subset B, lo manda client_1. Una linea por articulo: archivo del dataset de Kaggle y url.
+# Subset de client_1. Una linea por articulo: archivo del dataset de Kaggle y url.
 # Q1
 enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Naevala_perexigua
 enwiki/data/enwiki_namespace_0_00150.parquet https://en.wikipedia.org/wiki/Acianthera_pectinata

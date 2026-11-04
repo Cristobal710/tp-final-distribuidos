@@ -17,9 +17,10 @@ logs:
 CLIENT ?= client_0
 EXPECTED ?= /expected
 TOOLS = COMPOSE_IGNORE_ORPHANS=1 docker compose -f docker-compose.yaml --profile tools
+CLEAN_RESULTS = MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint rm expected -rf
 
 run:
-	rm -rf results/$(CLIENT)
+	$(CLEAN_RESULTS) /results/$(CLIENT)
 	COMPOSE_HTTP_TIMEOUT=300 docker compose -f docker-compose.yaml up --build --remove-orphans --detach
 	docker logs --follow $(CLIENT)
 	test "$$(docker wait $(CLIENT))" = 0
@@ -36,12 +37,12 @@ expected-hashes:
 .PHONY: expected-hashes
 
 SUBSETS_COMPOSE = docker compose -f docker-compose.yaml -f docker-compose.subsets.yaml
-SUBSET_CLIENTS = client_0:subset_a client_1:subset_b
+SUBSET_CLIENTS = client_0 client_1
 
 subsets:
 	$(TOOLS) build --quiet expected
-	@for pair in $(SUBSET_CLIENTS); do \
-		subset=/datasets/$${pair##*:}; \
+	@for client in $(SUBSET_CLIENTS); do \
+		subset=/datasets/$$client; \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected subset.py $$subset && \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm -e LOCAL_DATASET_DIR=$$subset -e OUTPUT_DIR=$$subset/expected expected && \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py $$subset/expected || exit 1; \
@@ -49,16 +50,16 @@ subsets:
 .PHONY: subsets
 
 run-subsets:
-	rm -rf results/client_0 results/client_1
+	$(CLEAN_RESULTS) /results/client_0 /results/client_1
 	COMPOSE_HTTP_TIMEOUT=300 $(SUBSETS_COMPOSE) up --build --remove-orphans --detach
 	@codes=$$(docker wait client_0 client_1); $(SUBSETS_COMPOSE) logs client_0 client_1; test "$$(echo $$codes)" = "0 0"
 .PHONY: run-subsets
 
 hashes-subsets:
 	$(TOOLS) build --quiet expected
-	@status=0; for pair in $(SUBSET_CLIENTS); do \
-		echo "== $${pair%%:*} contra $${pair##*:}"; \
-		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py /results/$${pair%%:*} /datasets/$${pair##*:}/expected/hashes.txt || status=1; \
+	@status=0; for client in $(SUBSET_CLIENTS); do \
+		echo "== $$client"; \
+		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py /results/$$client /datasets/$$client/expected/hashes.txt || status=1; \
 	done; exit $$status
 .PHONY: hashes-subsets
 
