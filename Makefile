@@ -1,6 +1,10 @@
 SHELL := /bin/bash
 
-up:
+compose:
+	python3 src/tools/compose/generate_compose.py
+.PHONY: compose
+
+up: compose
 	COMPOSE_HTTP_TIMEOUT=300 docker compose -f docker-compose.yaml up --build --remove-orphans --detach
 	docker compose -f docker-compose.yaml logs --follow
 .PHONY: up
@@ -19,7 +23,7 @@ EXPECTED ?= /expected
 TOOLS = COMPOSE_IGNORE_ORPHANS=1 docker compose -f docker-compose.yaml --profile tools
 CLEAN_RESULTS = MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint rm expected -rf
 
-run:
+run: compose
 	$(CLEAN_RESULTS) /results/$(CLIENT)
 	COMPOSE_HTTP_TIMEOUT=300 docker compose -f docker-compose.yaml up --build --remove-orphans --detach
 	docker logs --follow $(CLIENT)
@@ -50,7 +54,7 @@ subsets:
 	done
 .PHONY: subsets
 
-run-subsets:
+run-subsets: compose
 	$(CLEAN_RESULTS) /results/client_0 /results/client_1
 	COMPOSE_HTTP_TIMEOUT=300 $(SUBSETS_COMPOSE) up --build --remove-orphans --detach
 	@codes=$$(docker wait client_0 client_1); $(SUBSETS_COMPOSE) logs client_0 client_1; test "$$(echo $$codes)" = "0 0"

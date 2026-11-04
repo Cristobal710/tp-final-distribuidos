@@ -20,6 +20,10 @@ Requiere Docker, Python 3 e Internet para las imagenes reales. Ver [detalle de l
 
 Cada cliente escribe sus resultados en `results/<cliente>/`, un archivo JSONL por consulta (`q1.jsonl` … `q5.jsonl`).
 
+### Cantidad de nodos
+
+La cantidad de instancias de cada nodo se elige en `nodes.env`. `docker-compose.yaml` se genera a partir de ese archivo, así que no hay que editarlo a mano. `make up`, `make run` y `make run-subsets` lo regeneran solos, y `make compose` lo regenera sin levantar nada. Al bajar una cantidad, las instancias que sobran se borran al levantar de nuevo. Sigue habiendo un solo gateway.
+
 ### Validación de resultados
 
 `make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/` junto con sus hashes. En una corrida reducida también baja las imágenes de Q2 y guarda su sha256; con el dataset completo no, porque son más de 300 mil descargas. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose. Por defecto es 0 (dataset completo) y se puede cambiar desde el host, por ejemplo con `export DATASET_ROWS_PER_PATTERN=20000` antes de `make expected` y `make run`. Para comparar contra lo recién calculado: `make hashes EXPECTED=/results/expected`. Sin ese `EXPECTED`, una corrida reducida se compara contra el dataset completo y da `DIFIERE`.
@@ -154,9 +158,13 @@ src/
       images.py           baja las imagenes de Q2 de un subset y guarda su sha256
       Dockerfile
       requirements.txt
+    compose/
+      generate_compose.py  genera docker-compose.yaml a partir de nodes.env
 datasets/                 subsets propios elegidos a mano, uno por cliente
 expected/                 resultados esperados del dataset completo
 tests/                    tests
+nodes.env                 cantidad de instancias de cada nodo
+docker-compose.yaml       generado a partir de nodes.env
 docker-compose.subsets.yaml  agrega client_1 y hace que cada cliente mande su subset
 ```
 
@@ -389,7 +397,7 @@ si vuelve a entregarse despues de una publicacion parcial, puede repetir resulta
 Los EOF y LATE_EOF se coordinan por etapa como en Text processor: cada replica comparte los avisos de la etapa anterior
 y publica sus cantidades de mensajes procesados y enviados. Un descargador con trabajo activo difiere su EOF hasta terminarlo.
 Los batches sin coincidencias o con todas las descargas fallidas igual cuentan como procesados y permiten terminar Q2 sin resultados.
-Docker Compose configura dos filtros y dos descargadores. Al cambiar las cantidades hay que mantener consistentes los IDs y las cantidades de cada etapa.
+La cantidad de filtros y de descargadores se elige en `nodes.env`.
 
 El gateway consume `resultados.<gateway_id>` y envia cada resultado al cliente por su conexion TCP original.
 
@@ -448,7 +456,7 @@ sent es la cantidad de mensajes de resultados publicados por esa instancia. El c
 todos los comparadores y verificar los resultados recibidos contra la suma de sent, sin tratar el total local de un comparador
 como un total global (`UpstreamTracker(..., check_total=False, check_received=True)`).
 
-Docker Compose configura dos Average y dos Comparator. Las cantidades deben coincidir en los Text processors y en los nodos de Q5.
+La cantidad de Average y de Comparator se elige en `nodes.env`.
 Los resultados se publican en `resultados.<gateway_id>` y el gateway los reenvia al cliente.
 
 Los tests `test_q5_output.py`, `test_average.py`, `test_comparator.py` y `test_q5_pipeline.py` cubren los componentes y
