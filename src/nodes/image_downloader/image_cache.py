@@ -31,11 +31,12 @@ class ImageCache:
             connection.execute("DELETE FROM images WHERE url = ?", (url,))
             total -= size
 
-    def get(self, url, max_image_bytes):
+    def get(self, url, max_image_bytes=0):
         try:
             with closing(sqlite3.connect(self._path)) as connection, connection:
                 row = connection.execute(
-                    "SELECT data FROM images WHERE url = ? AND size > 0 AND size <= ?", (url, max_image_bytes),
+                    "SELECT data FROM images WHERE url = ? AND size > 0 AND (? = 0 OR size <= ?)",
+                    (url, max_image_bytes, max_image_bytes),
                 ).fetchone()
                 if row is not None:
                     connection.execute("UPDATE images SET used = ? WHERE url = ?", (time.time_ns(), url))

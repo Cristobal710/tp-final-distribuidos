@@ -45,7 +45,9 @@ def _read_image(response, deadline, max_bytes, stop_event):
         declared = int(declared) if declared is not None else None
     except ValueError as e:
         raise DownloadError("Content-Length invalido") from e
-    if declared is not None and (declared < 0 or declared > max_bytes):
+    if declared is not None and declared < 0:
+        raise DownloadError("Content-Length invalido")
+    if max_bytes and declared is not None and declared > max_bytes:
         raise DownloadError("La imagen supera el limite de bytes")
     data = bytearray()
     while True:
@@ -53,11 +55,11 @@ def _read_image(response, deadline, max_bytes, stop_event):
         if time.monotonic() >= deadline:
             raise TimeoutError("Se agoto el tiempo de descarga")
         # read1 permite revisar el plazo entre lecturas, incluso si el servidor manda datos de a poco.
-        chunk = response.read1(min(CHUNK_BYTES, max_bytes - len(data) + 1))
+        chunk = response.read1(min(CHUNK_BYTES, max_bytes - len(data) + 1) if max_bytes else CHUNK_BYTES)
         if not chunk:
             break
         data.extend(chunk)
-        if len(data) > max_bytes:
+        if max_bytes and len(data) > max_bytes:
             raise DownloadError("La imagen supera el limite de bytes")
     if declared is not None and len(data) < declared:
         raise IncompleteRead(bytes(data), declared - len(data))
@@ -66,10 +68,10 @@ def _read_image(response, deadline, max_bytes, stop_event):
     return bytes(data)
 
 
-def download_image(image_url, *, timeout, attempts, max_bytes, stop_event=None, retry_delay=1.0,
+def download_image(image_url, *, timeout, attempts, max_bytes=0, stop_event=None, retry_delay=1.0,
                    throttle=None, cache=None):
-    if not math.isfinite(timeout) or timeout <= 0 or attempts < 1 or max_bytes < 1:
-        raise ValueError("Los limites de descarga tienen que ser positivos y finitos")
+    if not math.isfinite(timeout) or timeout <= 0 or attempts < 1 or max_bytes < 0:
+        raise ValueError("El timeout y los intentos deben ser positivos; el limite de bytes no puede ser negativo")
     if not math.isfinite(retry_delay) or retry_delay < 0:
         raise ValueError("La espera entre reintentos tiene que ser finita y no negativa")
     stop_event = stop_event if stop_event is not None else threading.Event()

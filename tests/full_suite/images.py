@@ -10,7 +10,7 @@ import requests
 
 from common.request_throttle import RequestThrottle
 
-MAX_IMAGE_BYTES = 1048576
+MAX_IMAGE_BYTES = 0
 USER_AGENT = "DistributedWikipediaFullSuite/1.0 (local integration test)"
 THROTTLE = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "1.5")))
 
@@ -46,12 +46,12 @@ def snapshot_image(url, attempts=3, timeout=20, max_bytes=MAX_IMAGE_BYTES):
                 content_type = response.headers.get("Content-Type", "").split(";")[0].lower()
                 if not content_type.startswith("image/"):
                     return {"success": False, "reason": "not an image"}
-                if int(response.headers.get("Content-Length", 0)) > max_bytes:
+                if max_bytes and int(response.headers.get("Content-Length", 0)) > max_bytes:
                     return {"success": False, "reason": "image too large"}
                 digest, size = hashlib.sha256(), 0
                 for chunk in response.iter_content(65536):
                     size += len(chunk)
-                    if size > max_bytes:
+                    if max_bytes and size > max_bytes:
                         return {"success": False, "reason": "image too large"}
                     digest.update(chunk)
                 if not size:

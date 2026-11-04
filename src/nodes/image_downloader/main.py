@@ -35,10 +35,10 @@ def main():
     throttle = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "1.5")))
     cache_dir = os.environ.get("IMAGE_CACHE_DIR", "/cache/q2")
     cache_max_bytes = int(os.environ.get("IMAGE_CACHE_MAX_BYTES", "268435456"))
-    max_image_bytes = int(os.environ["MAX_IMAGE_BYTES"])
+    max_image_bytes = int(os.environ.get("MAX_IMAGE_BYTES", "0"))
     max_result_bytes = int(os.environ["MAX_RESULT_BYTES"])
     idle_seconds = float(os.environ["PUBLISHER_IDLE_SECONDS"])
-    if (not 0 <= downloader_id < downloader_amount or min(filter_amount, attempts, max_image_bytes) < 1
+    if (not 0 <= downloader_id < downloader_amount or min(filter_amount, attempts) < 1 or max_image_bytes < 0
             or not 0 < max_result_bytes <= MAX_VALUE_SIZE or not math.isfinite(timeout) or timeout <= 0
             or not math.isfinite(retry_delay) or retry_delay < 0 or cache_max_bytes < 0):
         raise ValueError("Configuracion invalida del descargador de imagenes")

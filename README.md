@@ -251,8 +251,8 @@ verifica este comportamiento contra un broker real.
 | `DOWNLOAD_INTERVAL_SECONDS` | Intervalo minimo entre inicios de intentos HTTP por descargador; `0` desactiva el throttle | `1.5` |
 | `IMAGE_CACHE_DIR` | Directorio de la cache persistente de imagenes; vacio la desactiva | `/cache/q2` |
 | `IMAGE_CACHE_MAX_BYTES` | Limite de bytes de imagenes en cache, sin contar metadatos SQLite; `0` la desactiva | `268435456` |
-| `MAX_IMAGE_BYTES` | Maximo de bytes originales de una imagen | `1048576` |
-| `MAX_RESULT_BYTES` | Maximo de bytes del resultado JSON completo | `8388608` |
+| `MAX_IMAGE_BYTES` | Maximo de bytes originales de una imagen; `0` desactiva el limite | `0` |
+| `MAX_RESULT_BYTES` | Maximo de bytes del resultado JSON completo | `67108864` |
 | `PUBLISHER_IDLE_SECONDS` | Tiempo ocioso antes de renovar una conexion de salida | `30` |
 
 ### Text processor
@@ -379,8 +379,9 @@ Dos misses simultaneos de la misma URL pueden descargarla dos veces; no se coord
 HTTP usa la biblioteca estandar de Python y un User-Agent identificable, sigue redirects y exige Content-Type image/*.
 Los timeouts, errores de conexion, HTTP 429 y 5xx se reintentan con espera exponencial y cantidad limitada de intentos.
 Si el servidor indica `Retry-After`, se respeta esa espera; SIGTERM puede interrumpirla.
-Las URL invalidas, otros errores HTTP, respuestas vacias o que no son imagenes y los excesos de tamanio se descartan.
-El limite de bytes se aplica tambien sin Content-Length; los resultados tienen otro limite porque JSON ocupa mas que la imagen original.
+Las URL invalidas, otros errores HTTP y respuestas vacias o que no son imagenes se descartan.
+Las imagenes no tienen limite de bytes por defecto. Si se configura `MAX_IMAGE_BYTES`, se aplica tambien sin Content-Length.
+El resultado JSON completo tiene un limite de 64 MiB, igual al maximo del protocolo, porque ocupa mas que la imagen original.
 SIGTERM cancela los reintentos y deja sin ack el batch que no termino. Un fallo de publicacion tambien deja el batch sin ack;
 si vuelve a entregarse despues de una publicacion parcial, puede repetir resultados.
 

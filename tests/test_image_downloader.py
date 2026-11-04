@@ -62,6 +62,7 @@ class ImageCacheTest(unittest.TestCase):
         cache.put("https://images/a", PNG)
         other = ImageCache(self.directory.name, 100)
         self.assertEqual(other.get("https://images/a", len(PNG)), PNG)
+        self.assertEqual(other.get("https://images/a"), PNG)
         self.assertIsNone(other.get("https://images/a", len(PNG) - 1))
         self.assertIsNone(other.get("https://images/b", 100))
 
@@ -333,11 +334,13 @@ class DownloadHTTPTest(unittest.TestCase):
                 if self.path == "/slow":
                     time.sleep(0.2)
                 body = b"" if self.path == "/empty" else PNG
+                if self.path in ("/large", "/large-no-length"):
+                    body += b"\0" * 1048576
                 self.send_response(status)
                 if status == 429 and self.path.endswith("retry-after"):
                     self.send_header("Retry-After", "600")
                 self.send_header("Content-Type", "text/html" if self.path == "/html" else "image/png")
-                if self.path != "/no-length":
+                if self.path not in ("/no-length", "/large-no-length"):
                     self.send_header("Content-Length", str(len(body) + (10 if self.path == "/truncated" else 0)))
                 self.end_headers()
                 try:
@@ -448,6 +451,22 @@ class DownloadHTTPTest(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(DownloadError):
                 self.fetch(path, max_bytes=len(PNG) - 1)
         self.assertEqual(self.fetch("/image", max_bytes=len(PNG)), PNG)
+
+    def test_default_download_and_cache_accept_images_larger_than_one_mebibyte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = ImageCache(directory, 3 * 1048576)
+            for path in ("/large", "/large-no-length"):
+                with self.subTest(path=path):
+                    url = self.base_url + path
+                    image = download_image(url, timeout=2, attempts=1, cache=cache)
+                    self.assertEqual(image, PNG + b"\0" * 1048576)
+                    with patch("download.urlopen", side_effect=AssertionError("Unexpected HTTP request")):
+                        self.assertEqual(download_image(url, timeout=2, attempts=1, cache=cache), image)
+            from tests.full_suite.images import snapshot_image
+            with patch("tests.full_suite.images.THROTTLE"):
+                reference = snapshot_image(self.base_url + "/large")
+            self.assertTrue(reference["success"])
+            self.assertEqual(reference["bytes"], len(PNG) + 1048576)
 
     def test_truncated_body_is_retried_and_rejected(self):
         before = self.calls.get("/truncated", 0)
