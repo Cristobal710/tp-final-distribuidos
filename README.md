@@ -22,7 +22,7 @@ Cada cliente escribe sus resultados en `results/<cliente>/`, un archivo JSONL po
 
 ### Validación de resultados
 
-`make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/` junto con sus hashes. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose. Para comparar contra lo recién calculado: `make hashes EXPECTED=/results/expected`.
+`make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/` junto con sus hashes. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose. Por defecto es 0 (dataset completo) y se puede cambiar desde el host, por ejemplo con `export DATASET_ROWS_PER_PATTERN=20000` antes de `make expected` y `make run`. Para comparar contra lo recién calculado: `make hashes EXPECTED=/results/expected`. Sin ese `EXPECTED`, una corrida reducida se compara contra el dataset completo y da `DIFIERE`.
 
 `make pack-expected`: comprime `results/expected/` en `expected/`, que es la carpeta versionada con los resultados esperados del dataset completo.
 

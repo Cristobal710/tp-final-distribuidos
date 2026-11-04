@@ -1,5 +1,5 @@
 x-dataset: &dataset
-  DATASET_ROWS_PER_PATTERN: 0
+  DATASET_ROWS_PER_PATTERN: ${DATASET_ROWS_PER_PATTERN:-0}
 
 services:
   rabbitmq:
