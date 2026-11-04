@@ -22,11 +22,11 @@ Cada cliente escribe sus resultados en `results/<cliente>/`, un archivo JSONL po
 
 ### Validación de resultados
 
-`make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/` junto con sus hashes. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose. Por defecto es 0 (dataset completo) y se puede cambiar desde el host, por ejemplo con `export DATASET_ROWS_PER_PATTERN=20000` antes de `make expected` y `make run`. Para comparar contra lo recién calculado: `make hashes EXPECTED=/results/expected`. Sin ese `EXPECTED`, una corrida reducida se compara contra el dataset completo y da `DIFIERE`.
+`make expected`: calcula las 5 consultas directamente sobre los mismos archivos y filas que manda el cliente, sin pasar por el sistema, y las escribe en `results/expected/` junto con sus hashes. En una corrida reducida también baja las imágenes de Q2 y guarda su sha256; con el dataset completo no, porque son más de 300 mil descargas. Usa el mismo `DATASET_ROWS_PER_PATTERN` que el cliente, definido una sola vez en `x-dataset` del compose. Por defecto es 0 (dataset completo) y se puede cambiar desde el host, por ejemplo con `export DATASET_ROWS_PER_PATTERN=20000` antes de `make expected` y `make run`. Para comparar contra lo recién calculado: `make hashes EXPECTED=/results/expected`. Sin ese `EXPECTED`, una corrida reducida se compara contra el dataset completo y da `DIFIERE`.
 
 `make pack-expected`: comprime `results/expected/` en `expected/`, que es la carpeta versionada con los resultados esperados del dataset completo.
 
-`make compare`: compara `results/client_0/` contra `expected/` y dice, por consulta, si coincide o qué filas faltan y sobran (`make compare CLIENT=client_1` para otro cliente, `make compare EXPECTED=/results/expected` para comparar contra lo recién calculado sin comprimir). Q4 se compara en orden y Q2 solo por nombre y url, porque el sistema devuelve la imagen y lo esperado su url.
+`make compare`: compara `results/client_0/` contra `expected/` y dice, por consulta, si coincide o qué filas faltan y sobran (`make compare CLIENT=client_1` para otro cliente, `make compare EXPECTED=/results/expected` para comparar contra lo recién calculado sin comprimir). Q4 se compara en orden y Q2 por nombre y url, porque el sistema devuelve la imagen y lo esperado su url. En los subsets y en las corridas reducidas también se compara el sha256 de cada imagen, como `Imagenes Q2`.
 
 `make hashes`: calcula un sha256 por consulta de `results/client_0/`, lo guarda en `results/client_0/hashes.txt` y lo muestra al lado del de `expected/hashes.txt`, diciendo si coincide.
 
@@ -41,7 +41,7 @@ Los esperados son CSV y los resultados del cliente JSONL. Antes de comparar o ca
 - `articles.txt`: la lista elegida, una línea por artículo con su archivo del dataset de Kaggle y su url.
 - `articles.parquet`: los artículos tal cual vienen en Kaggle, que es lo que manda el cliente.
 - `articles.json`: los mismos artículos en texto, para leerlos.
-- `expected/`: el resultado esperado de cada consulta y sus hashes.
+- `expected/`: el resultado esperado de cada consulta y sus hashes. `q2_images.csv` tiene el sha256 de cada imagen de Q2, bajada de Wikimedia sin pasar por el sistema.
 
 `make subsets`: arma `articles.parquet`, `articles.json` y `expected/` de cada subset a partir de su `articles.txt`. Hace falta solo cuando cambia la lista.
 
@@ -151,6 +151,7 @@ src/
       compare.py          compara los resultados de un cliente contra los esperados
       hashes.py           calcula un hash por consulta y lo compara contra los hashes esperados
       subset.py           arma un subset con los articulos elegidos a mano
+      images.py           baja las imagenes de Q2 de un subset y guarda su sha256
       Dockerfile
       requirements.txt
 datasets/                 subsets propios elegidos a mano, uno por cliente
@@ -246,7 +247,7 @@ verifica este comportamiento contra un broker real.
 | `CONTROL_EXCHANGE` | Exchange para compartir EOF entre descargadores | `control_image_downloader` |
 | `RESULTS_QUEUE_PREFIX` | Prefijo de las colas por gateway | `resultados` |
 | `DOWNLOAD_TIMEOUT_SECONDS` | Timeout de las operaciones de red y presupuesto por intento, revisado entre lecturas | `10` |
-| `DOWNLOAD_ATTEMPTS` | Intentos por imagen, incluyendo el primero | `3` |
+| `DOWNLOAD_ATTEMPTS` | Intentos por imagen, incluyendo el primero | `10` |
 | `DOWNLOAD_RETRY_SECONDS` | Espera inicial entre intentos; se duplica en cada reintento | `1` |
 | `DOWNLOAD_INTERVAL_SECONDS` | Intervalo minimo entre inicios de intentos HTTP por descargador; `0` desactiva el throttle | `1.5` |
 | `IMAGE_CACHE_DIR` | Directorio de la cache persistente de imagenes; vacio la desactiva | `/cache/q2` |
@@ -470,3 +471,23 @@ guarda cada imagen en `images/<sha256>.bin` y escribe `[name, url, sha256, canti
 Al terminar correctamente se escribe `summary.json`, con filas enviadas, filas recibidas y consultas completas.
 Para conservar resultados de un cliente normal en Docker hay que montar `RESULT_DIR` en el host. El compose ya lo hace con `client_0` en `results/client_0/`.
 
+
+## Demo
+
+1. Subsets con dos clientes:
+
+```
+make run-subsets
+make hashes-subsets
+```
+
+2. Dataset de Kaggle reducido a 100.000 filas por idioma:
+
+```
+export DATASET_ROWS_PER_PATTERN=100000
+make expected
+make run
+make hashes EXPECTED=/results/expected
+make compare EXPECTED=/results/expected
+unset DATASET_ROWS_PER_PATTERN
+```

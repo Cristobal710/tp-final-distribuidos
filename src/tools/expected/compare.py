@@ -7,7 +7,9 @@ import os
 import re
 import sys
 
-FILE_REGEX = re.compile(r"q(\d)\.(csv|csv\.gz|jsonl)")
+FILE_REGEX = re.compile(r"q(\d)(_images)?\.(csv|csv\.gz|jsonl)")
+IMAGES = 6
+IMAGES_FILE = "q2_images.csv"
 EXTENSIONS = ("csv", "csv.gz", "jsonl")
 ORDERED_QUERIES = {4}
 KEY_COLUMNS = {2: 2}
@@ -15,7 +17,17 @@ SAMPLES = 5
 EPOCH_UTC = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 
 
+def query_of(match):
+    return IMAGES if match.group(2) else int(match.group(1))
+
+
+def query_name(query):
+    return "Imagenes Q2" if query == IMAGES else f"Q{query}"
+
+
 def from_client(query, row):
+    if query == IMAGES:
+        return (row[1], row[2])
     if query == 1:
         url, milliseconds = row
         return (url, (EPOCH_UTC + datetime.timedelta(milliseconds=milliseconds)).isoformat())
@@ -32,8 +44,9 @@ def read_rows(path, query):
 
 
 def find_file(directory, query):
-    for extension in EXTENSIONS:
-        path = os.path.join(directory, f"q{query}.{extension}")
+    names = (IMAGES_FILE, "q2.jsonl") if query == IMAGES else [f"q{query}.{extension}" for extension in EXTENSIONS]
+    for name in names:
+        path = os.path.join(directory, name)
         if os.path.exists(path):
             return path
     return None
@@ -66,20 +79,20 @@ def compare_dirs(expected_dir, actual_dir):
         match = FILE_REGEX.fullmatch(name)
         if match is None:
             continue
-        query = int(match.group(1))
+        query = query_of(match)
         expected = read_rows(os.path.join(expected_dir, name), query)
         actual_path = find_file(actual_dir, query)
         if actual_path is None:
-            report.append(f"Q{query}: sin resultado del sistema ({len(expected)} filas esperadas), se saltea")
+            report.append(f"{query_name(query)}: sin resultado del sistema ({len(expected)} filas esperadas), se saltea")
             continue
         actual = read_rows(actual_path, query)
         problems = compare_query(query, expected, actual)
         if problems:
             all_ok = False
-            report.append(f"Q{query}: DIFIERE ({len(actual)} filas obtenidas, {len(expected)} esperadas)")
+            report.append(f"{query_name(query)}: DIFIERE ({len(actual)} filas obtenidas, {len(expected)} esperadas)")
             report.extend(f"    {problem}" for problem in problems)
         else:
-            report.append(f"Q{query}: OK ({len(actual)} filas)")
+            report.append(f"{query_name(query)}: OK ({len(actual)} filas)")
     return all_ok, report
 
 

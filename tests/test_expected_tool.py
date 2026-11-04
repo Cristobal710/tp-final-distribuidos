@@ -2,10 +2,12 @@ import csv
 import datetime
 import gzip
 import hashlib
+import io
 import os
 import tempfile
 import json
 import unittest
+from urllib.error import HTTPError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -13,6 +15,7 @@ import pyarrow.parquet as pq
 from compare import compare_dirs, from_client
 from expected import ExpectedResults, iso_utc
 from hashes import compare_digests, digests_of, format_digests, read_digests
+from images import download, write_image_hashes
 from subset import read_list, select_articles, write_subset
 
 STOP_WORDS = {"the", "of", "le", "la"}
@@ -51,6 +54,7 @@ EXPECTED_RESULTS = {
     "q1.csv": (["url", "date_modified"], [["u1", "1970-01-01T00:00:00+00:00"],
                                           ["u2", "2025-03-12T08:26:14.123000+00:00"]]),
     "q2.csv": (["name", "url", "image_url"], [["Ada, condesa", "u1", "https://img"]]),
+    "q2_images.csv": (["url", "image_sha256"], [["u1", "404f63"]]),
     "q3.csv": (["word"], [["été"]]),
     "q4.csv": (["word", "count"], [["sol", "3"], ["luna", "2"]]),
     "q5.csv": (["url", "word_count"], [["u3", "12"]]),
@@ -146,6 +150,22 @@ class CompareTest(unittest.TestCase):
         write_client_and_expected(self.expected, self.actual)
         ok, report = compare_dirs(self.expected, self.actual)
         self.assertTrue(ok, report)
+        self.assertEqual(len(report), 6)
+        self.assertIn("Imagenes Q2: OK (1 filas)", report)
+
+    def test_a_different_image_is_reported(self):
+        write_client_and_expected(self.expected, self.actual)
+        write_jsonl(self.actual, "q2.jsonl", [["Ada, condesa", "u1", "otra", 88890]])
+        ok, report = compare_dirs(self.expected, self.actual)
+        self.assertFalse(ok)
+        self.assertIn("Q2: OK (1 filas)", report)
+        self.assertTrue(any(line.startswith("Imagenes Q2: DIFIERE") for line in report))
+
+    def test_images_are_not_compared_without_expected_hashes(self):
+        write_client_and_expected(self.expected, self.actual)
+        os.remove(os.path.join(self.expected, "q2_images.csv"))
+        ok, report = compare_dirs(self.expected, self.actual)
+        self.assertTrue(ok, report)
         self.assertEqual(len(report), 5)
 
     def test_a_query_the_system_did_not_answer_is_skipped(self):
@@ -196,6 +216,14 @@ class HashesTest(unittest.TestCase):
         write_client_and_expected(self.expected, self.actual)
         self.assertEqual(digests_of(self.actual), digests_of(self.expected))
 
+    def test_a_different_image_changes_only_the_images_hash(self):
+        write_client_and_expected(self.expected, self.actual)
+        write_jsonl(self.actual, "q2.jsonl", [["Ada, condesa", "u1", "otra", 88890]])
+        ok, report = compare_digests(digests_of(self.expected), digests_of(self.actual))
+        self.assertFalse(ok)
+        self.assertIn("Q2: OK", report)
+        self.assertIn("Imagenes Q2: DIFIERE", report)
+
     def test_compares_against_the_saved_hashes(self):
         write_csv(self.expected, "q3.csv", ["word"], [["sol"]])
         write_csv(self.expected, "q5.csv", ["url", "word_count"], [["u1", "9"]])
@@ -207,6 +235,38 @@ class HashesTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(report[0], "Q3: DIFIERE")
         self.assertIn("se saltea", report[3])
+
+
+class ImagesTest(unittest.TestCase):
+
+    def test_writes_the_hash_of_every_downloaded_image(self):
+        directory = tempfile.mkdtemp()
+        write_csv(directory, "q2.csv", ["name", "url", "image_url"], [["Ada", "u1", "img1"], ["Bob", "u2", "img2"]])
+        files = {"img1": b"uno", "img2": b"dos"}
+        write_image_hashes(directory, files.__getitem__, sleep=lambda seconds: None)
+        self.assertEqual(read_csv(directory, "q2_images.csv"), [
+            ["u1", hashlib.sha256(b"uno").hexdigest()], ["u2", hashlib.sha256(b"dos").hexdigest()],
+        ])
+
+    def test_download_waits_what_the_server_asks_after_a_429(self):
+        waits = []
+        answers = [HTTPError("u", 429, "", {"Retry-After": "11"}, None), io.BytesIO(b"imagen")]
+
+        def opener(request, timeout):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        self.assertEqual(download("https://img", opener, waits.append), b"imagen")
+        self.assertEqual(waits, [11])
+
+    def test_download_does_not_retry_a_missing_image(self):
+        def opener(request, timeout):
+            raise HTTPError("u", 404, "", {}, None)
+
+        with self.assertRaises(HTTPError):
+            download("https://img", opener, lambda seconds: None)
 
 
 class SubsetTest(unittest.TestCase):

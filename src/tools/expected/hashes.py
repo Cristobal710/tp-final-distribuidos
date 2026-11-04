@@ -4,7 +4,7 @@ import io
 import os
 import sys
 
-from compare import FILE_REGEX, KEY_COLUMNS, ORDERED_QUERIES, read_rows
+from compare import FILE_REGEX, IMAGES, KEY_COLUMNS, ORDERED_QUERIES, query_name, query_of, read_rows
 
 HASHES_FILE = "hashes.txt"
 
@@ -28,8 +28,11 @@ def digests_of(directory):
     for name in sorted(os.listdir(directory)):
         match = FILE_REGEX.fullmatch(name)
         if match is not None:
-            query = int(match.group(1))
+            query = query_of(match)
             digests[query] = digest_of(os.path.join(directory, name), query)
+    client_images = os.path.join(directory, "q2.jsonl")
+    if os.path.exists(client_images):
+        digests[IMAGES] = digest_of(client_images, IMAGES)
     return digests
 
 
@@ -50,12 +53,12 @@ def compare_digests(expected, actual):
     report, all_ok = [], True
     for query, (expected_rows, expected_digest) in sorted(expected.items()):
         if query not in actual:
-            report.append(f"Q{query}: sin resultado del sistema, se saltea")
+            report.append(f"{query_name(query)}: sin resultado del sistema, se saltea")
             continue
         actual_rows, actual_digest = actual[query]
         ok = actual_digest == expected_digest
         all_ok = all_ok and ok
-        report.append(f"Q{query}: {'OK' if ok else 'DIFIERE'}")
+        report.append(f"{query_name(query)}: {'OK' if ok else 'DIFIERE'}")
         report.append(f"    esperado {expected_digest} ({expected_rows} filas)")
         report.append(f"    obtenido {actual_digest} ({actual_rows} filas)")
     return all_ok, report

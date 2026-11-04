@@ -45,6 +45,7 @@ subsets:
 		subset=/datasets/$$client; \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected subset.py $$subset && \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm -e LOCAL_DATASET_DIR=$$subset -e OUTPUT_DIR=$$subset/expected expected && \
+		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected images.py $$subset/expected && \
 		MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py $$subset/expected || exit 1; \
 	done
 .PHONY: subsets
@@ -65,7 +66,9 @@ hashes-subsets:
 
 expected:
 	docker compose -f docker-compose.yaml --profile tools build expected
+	$(CLEAN_RESULTS) /results/expected/q2_images.csv
 	docker compose -f docker-compose.yaml --profile tools run --rm expected
+	$(if $(filter-out 0,$(DATASET_ROWS_PER_PATTERN)),MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected images.py /results/expected)
 	MSYS_NO_PATHCONV=1 $(TOOLS) run --rm --entrypoint python3 expected hashes.py /results/expected
 .PHONY: expected
 
