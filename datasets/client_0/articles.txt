@@ -1,4 +1,4 @@
-# Subset A, lo manda client_0. Una linea por articulo: archivo del dataset de Kaggle y url.
+# Subset de client_0. Una linea por articulo: archivo del dataset de Kaggle y url.
 # Q1
 enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Gaetano_Antoniazzi
 enwiki/data/enwiki_namespace_0_00050.parquet https://en.wikipedia.org/wiki/Villa_Vilaque

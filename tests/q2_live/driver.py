@@ -26,7 +26,7 @@ for name in ('clasificacion', 'resultados.0'):
 clients = {}
 started = time.monotonic()
 
-for subset in ('subset_a', 'subset_b'):
+for subset in ('client_0', 'client_1'):
     client = f'{phase}_{subset}'
     directory = Path('/repo/datasets') / subset
     rows = json.loads((directory / 'articles.json').read_text())

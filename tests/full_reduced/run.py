@@ -56,7 +56,7 @@ for name, service in services.items():
 compose_path = output / 'compose.json'
 compose_path.write_text(json.dumps({'services': services}, indent=2))
 compose = ['docker', 'compose', '-p', project, '-f', str(compose_path)]
-clients = {'client_0': 'subset_a', 'client_1': 'subset_b'}
+clients = {'client_0': 'client_0', 'client_1': 'client_1'}
 workers = set(services) - set(clients)
 report = {'passed': False, 'rows_per_client': 15, 'clients': {},
           'cache_directory': str(cache), 'reused_cache': arguments.cache_dir is not None,

@@ -67,7 +67,7 @@ def trace_events():
             for path in output.glob('http-*.jsonl')}
 
 
-report = {'datasets': ['subset_a', 'subset_b'], 'rows_per_dataset': 15, 'expected_q2_per_dataset': 3,
+report = {'datasets': ['client_0', 'client_1'], 'rows_per_dataset': 15, 'expected_q2_per_dataset': 3,
           'interval_seconds_per_worker': interval, 'passed': False}
 started = False
 try:
