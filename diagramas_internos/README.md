@@ -36,8 +36,8 @@ Podemos intentar manejar unicamente información en este gateway (de entrada y d
 
 ### Decisión final
 
-Vamos a usar gateways stateless que puedan recibir información de cualquier cliente y enviar información a cualquier cliente. La idea de no tener estado es que sean lo más escalables posibles. Si no tenemos un estado, podemos escalar de la forma más simple posible. 
-La idea de escalar es no perder disponibilidad en ningún momento. En contraposición, vamos a tener una complejidad mayor en el procesamiento de los datos, porque pueden llegar de cualquier gateway y no hay una información compartida entre ellos y la parte del sistema que se encarga de procesar la información.
+Usamos un único gateway con estado. Todos los clientes se conectan a él, y mantiene la conexión TCP y el estado de las cinco consultas de cada cliente.
+Así conservamos las ventajas del caso 1: la entrada y la salida pasan por un solo punto y no hay que coordinar entre gateways. A cambio, aceptamos su desventaja: el gateway es un único punto de falla.
 
 # Diagrama: Punto de entrada y salida del sistema
 
@@ -78,7 +78,7 @@ Los flujos de procesamiento de cada consulta se describen en la sección siguien
 
 # Requisitos Funcionales
 
-El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 7 columnas que usan las consultas: `name`, `url`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
+El cliente establece una conexion con el servicio y empieza a leer el archivo por batches. El archivo es Parquet y no entra entero en memoria, así que lo lee de a partes. Cada batch tiene un conjunto de artículos enteros, y de cada artículo lleva solo las 8 columnas que usan las consultas: `name`, `url`, `in_language`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. El cliente va agregando artículos al batch hasta llegar a un tope de N artículos o X KB, lo que pase primero. Un artículo nunca se parte entre dos batches: si no entra, se cierra el batch y el artículo empieza el siguiente. Si un artículo solo ya pesa más que X, va solo en su batch (ver "Tamaño de los artículos"). 
 La lectura del archivo y la formación de los batches de entrada son responsabilidad del cliente.
 
 El sistema tiene que responder las 5 consultas a la vez sobre el mismo archivo. El gateway reenvía cada batch que recibe a los clasificadores, que lo reparten entre las 5 consultas (ver "Filtrado de entrada"), y cada flujo procesa los datos en paralelo. Cada resultado indica a qué consulta corresponde, y el cliente los va recibiendo a medida que cada consulta termina.
@@ -87,7 +87,7 @@ Se detectan las siguientes entidades de cómputo. Cada una se describe en detall
 
 | Entidad | Estado | Qué hace |
 |---|---|---|
-| Gateway | sin estado | Recibe los batches del cliente, los reparte entre los clasificadores y le devuelve los resultados. |
+| Gateway | con estado | Mantiene la conexión y el estado de las cinco consultas de cada cliente, publica los batches en la cola de los clasificadores y le devuelve los resultados. |
 | Clasificador | sin estado | Decide el período y el idioma de cada artículo, recorta las columnas y lo reparte entre las consultas. Resuelve Q1. |
 | Filter biography | sin estado | Deja pasar los artículos que mencionan "biography" o "biographie" (Q2). |
 | Buscador de imágenes | sin estado | Baja la imagen de cada artículo de Q2. |
@@ -108,7 +108,7 @@ Es lo que se describe al principio de esta sección. El cliente lee el archivo, 
 flowchart LR
     ARCH[("Archivo")] --> C(["Cliente<br/>arma los batches"])
     C -- "batches" --> GW["Gateway"]
-    GW --> QS[["Colas de los clasificadores"]]
+    GW --> QS[["Cola compartida<br/>clasificacion"]]
 ```
 
 #### Ventajas
@@ -158,9 +158,9 @@ flowchart LR
 
 Usamos el dataset [Wikipedia Structured Contents](https://www.kaggle.com/datasets/wikimedia-foundation/wikipedia-structured-contents) de Kaggle:
 
-* Tiene solo artículos en inglés (7.597.149) y en francés (2.871.732). Todo artículo es de uno de los dos idiomas, así que el idioma no se filtra: es una etiqueta que se lee de la url (`en.wikipedia` o `fr.wikipedia`). Hay que filtrar por las dudas.
+* Tiene solo artículos en inglés (7.597.149) y en francés (2.871.732). Todo artículo es de uno de los dos idiomas, y el idioma se lee de `in_language.identifier`.
 * Viene en Parquet, partido en 112 shards, y pesa 44,42 GiB en total.
-* Las consultas solo usan 7 columnas: `name`, `url`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. Las más pesadas (`tables`, `references`, `infoboxes`) no las usa ninguna.
+* Las consultas solo usan 8 columnas: `name`, `url`, `in_language`, `date_created`, `date_modified`, `abstract`, `sections` e `image.content_url`. Las más pesadas (`tables`, `references`, `infoboxes`) no las usa ninguna.
 
 ### Tamaño de los artículos
 
@@ -180,8 +180,8 @@ Como la muestra no incluye todo el dataset, también medimos los artículos más
 Conclusiones:
 
 * Ningún artículo debería acercarse a los 16 MiB. El peor caso está en el orden de 1 a 5 MB, así que no hace falta partir artículos.
-* Un artículo promedio, con las 7 columnas, pesa unos 5 KB, y casi todo es `sections`. Por ejemplo, un batch de 1 MB lleva unos 200 artículos.
-* Con las 7 columnas sin comprimir, entran al sistema unos 50 GB en total, casi lo mismo que pesa el dataset completo comprimido.
+* Un artículo promedio, con las 8 columnas, pesa unos 5 KB, y casi todo es `sections`. Por ejemplo, un batch de 1 MB lleva unos 200 artículos.
+* Con las 8 columnas sin comprimir, entran al sistema unos 50 GB en total, casi lo mismo que pesa el dataset completo comprimido.
 
 ### Fechas
 
@@ -589,7 +589,7 @@ Las cantidades cuentan mensajes o batches, no artículos ni palabras. Un LATE_EO
 3. **Recepción en colas por instancia.** Los contadores, Average y los comparadores también verifican que los mensajes recibidos coincidan con la suma de `sent`. Join Q3, Top 20 final y el gateway para Q3, Q4 y Q5 verifican orígenes y recepción; su referencia de recepción es la suma de `sent` de sus productores. El gateway para Q1 y Q2 verifica además el total global de procesamiento.
 4. **Trabajo tardío.** Una réplica con cola compartida puede procesar un batch después de haber publicado su EOF. Después de publicar los datos de ese batch, manda LATE_EOF con los incrementos de procesamiento y salida. Los consumidores suman esas correcciones antes de completar sus condiciones de finalización. El descargador de imágenes difiere su EOF mientras tiene una descarga activa de ese cliente.
 5. **Destinos de cada aviso.** Para una etapa con cola compartida se publica un aviso en esa cola y sus consumidores lo difunden por control. Los Text processor mandan avisos a todos los contadores y comparadores, incluidos los destinos con cero datos, y al Average elegido por hash del cliente. Los contadores mandan sus avisos al Join Q3 y al Top 20 final elegidos por hash del cliente. Average envía las estadísticas finales a la cola durable de cada comparador.
-6. **Estado de coordinación.** Los orígenes y conteos se mantienen en memoria. Los archivos de los contadores, Join Q3 y comparadores guardan sus filas de datos. Cada etapa libera los datos al completar su trabajo; las etapas con cola compartida conservan temporalmente una marca del cliente para emitir correcciones por batches tardíos.
+6. **Estado de coordinación.** Los orígenes y conteos se mantienen en memoria. Los archivos de los contadores, Join Q3 y comparadores guardan sus filas de datos. Cada etapa libera los datos al completar su trabajo; las etapas con cola compartida conservan temporalmente una marca del cliente para emitir correcciones por batches tardíos. Average y los comparadores guardan una marca de hasta 1024 clientes terminados para ignorar los mensajes que lleguen después.
 7. **Fin de resultados.** El gateway mantiene un tracker por cliente y consulta. Envía `QUERY_DONE` cuando se completan los orígenes y conteos de esa consulta, y `ALL_DONE` cuando terminó la entrada y se completaron las cinco consultas.
 
 ## Orígenes esperados y salidas
