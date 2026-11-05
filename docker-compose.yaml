@@ -29,9 +29,9 @@ services:
         condition: service_healthy
     environment:
       GATEWAY_ID: 0
-      CLASSIFIER_AMOUNT: 2
-      IMAGE_DOWNLOADER_AMOUNT: 2
-      COMPARATOR_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 5
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
 
   classifier_0:
     build:
@@ -43,7 +43,7 @@ services:
         condition: service_healthy
     environment:
       CLASSIFIER_ID: 0
-      CLASSIFIER_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 5
 
   classifier_1:
     build:
@@ -55,7 +55,43 @@ services:
         condition: service_healthy
     environment:
       CLASSIFIER_ID: 1
-      CLASSIFIER_AMOUNT: 2
+      CLASSIFIER_AMOUNT: 5
+
+  classifier_2:
+    build:
+      context: ./src
+      dockerfile: nodes/classifier/Dockerfile
+    container_name: classifier_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CLASSIFIER_ID: 2
+      CLASSIFIER_AMOUNT: 5
+
+  classifier_3:
+    build:
+      context: ./src
+      dockerfile: nodes/classifier/Dockerfile
+    container_name: classifier_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CLASSIFIER_ID: 3
+      CLASSIFIER_AMOUNT: 5
+
+  classifier_4:
+    build:
+      context: ./src
+      dockerfile: nodes/classifier/Dockerfile
+    container_name: classifier_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      CLASSIFIER_ID: 4
+      CLASSIFIER_AMOUNT: 5
 
   filter_biography_0:
     build:
@@ -67,8 +103,8 @@ services:
         condition: service_healthy
     environment:
       FILTER_BIOGRAPHY_ID: 0
-      FILTER_BIOGRAPHY_AMOUNT: 2
-      CLASSIFIER_AMOUNT: 2
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
 
   filter_biography_1:
     build:
@@ -80,8 +116,47 @@ services:
         condition: service_healthy
     environment:
       FILTER_BIOGRAPHY_ID: 1
-      FILTER_BIOGRAPHY_AMOUNT: 2
-      CLASSIFIER_AMOUNT: 2
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+
+  filter_biography_2:
+    build:
+      context: ./src
+      dockerfile: nodes/filter_biography/Dockerfile
+    container_name: filter_biography_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      FILTER_BIOGRAPHY_ID: 2
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+
+  filter_biography_3:
+    build:
+      context: ./src
+      dockerfile: nodes/filter_biography/Dockerfile
+    container_name: filter_biography_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      FILTER_BIOGRAPHY_ID: 3
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+
+  filter_biography_4:
+    build:
+      context: ./src
+      dockerfile: nodes/filter_biography/Dockerfile
+    container_name: filter_biography_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      FILTER_BIOGRAPHY_ID: 4
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
 
   image_downloader_0:
     build:
@@ -93,8 +168,8 @@ services:
         condition: service_healthy
     environment:
       IMAGE_DOWNLOADER_ID: 0
-      IMAGE_DOWNLOADER_AMOUNT: 2
-      FILTER_BIOGRAPHY_AMOUNT: 2
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      FILTER_BIOGRAPHY_AMOUNT: 5
       DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-0}
       IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}
     volumes:
@@ -110,8 +185,59 @@ services:
         condition: service_healthy
     environment:
       IMAGE_DOWNLOADER_ID: 1
-      IMAGE_DOWNLOADER_AMOUNT: 2
-      FILTER_BIOGRAPHY_AMOUNT: 2
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-0}
+      IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}
+    volumes:
+      - ./.cache/q2:/cache/q2
+
+  image_downloader_2:
+    build:
+      context: ./src
+      dockerfile: nodes/image_downloader/Dockerfile
+    container_name: image_downloader_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IMAGE_DOWNLOADER_ID: 2
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-0}
+      IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}
+    volumes:
+      - ./.cache/q2:/cache/q2
+
+  image_downloader_3:
+    build:
+      context: ./src
+      dockerfile: nodes/image_downloader/Dockerfile
+    container_name: image_downloader_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IMAGE_DOWNLOADER_ID: 3
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      FILTER_BIOGRAPHY_AMOUNT: 5
+      DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-0}
+      IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}
+    volumes:
+      - ./.cache/q2:/cache/q2
+
+  image_downloader_4:
+    build:
+      context: ./src
+      dockerfile: nodes/image_downloader/Dockerfile
+    container_name: image_downloader_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IMAGE_DOWNLOADER_ID: 4
+      IMAGE_DOWNLOADER_AMOUNT: 5
+      FILTER_BIOGRAPHY_AMOUNT: 5
       DOWNLOAD_INTERVAL_SECONDS: ${DOWNLOAD_INTERVAL_SECONDS:-0}
       IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}
     volumes:
@@ -127,11 +253,11 @@ services:
         condition: service_healthy
     environment:
       TEXT_PROCESSOR_ID: 0
-      TEXT_PROCESSOR_AMOUNT: 2
-      CLASSIFIER_AMOUNT: 2
-      WORD_COUNTER_AMOUNT: 2
-      AVERAGE_AMOUNT: 2
-      COMPARATOR_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+      WORD_COUNTER_AMOUNT: 5
+      AVERAGE_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
 
   text_processor_1:
     build:
@@ -143,11 +269,59 @@ services:
         condition: service_healthy
     environment:
       TEXT_PROCESSOR_ID: 1
-      TEXT_PROCESSOR_AMOUNT: 2
-      CLASSIFIER_AMOUNT: 2
-      WORD_COUNTER_AMOUNT: 2
-      AVERAGE_AMOUNT: 2
-      COMPARATOR_AMOUNT: 2
+      TEXT_PROCESSOR_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+      WORD_COUNTER_AMOUNT: 5
+      AVERAGE_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  text_processor_2:
+    build:
+      context: ./src
+      dockerfile: nodes/text_processor/Dockerfile
+    container_name: text_processor_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TEXT_PROCESSOR_ID: 2
+      TEXT_PROCESSOR_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+      WORD_COUNTER_AMOUNT: 5
+      AVERAGE_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  text_processor_3:
+    build:
+      context: ./src
+      dockerfile: nodes/text_processor/Dockerfile
+    container_name: text_processor_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TEXT_PROCESSOR_ID: 3
+      TEXT_PROCESSOR_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+      WORD_COUNTER_AMOUNT: 5
+      AVERAGE_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  text_processor_4:
+    build:
+      context: ./src
+      dockerfile: nodes/text_processor/Dockerfile
+    container_name: text_processor_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TEXT_PROCESSOR_ID: 4
+      TEXT_PROCESSOR_AMOUNT: 5
+      CLASSIFIER_AMOUNT: 5
+      WORD_COUNTER_AMOUNT: 5
+      AVERAGE_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
 
   average_0:
     build:
@@ -159,9 +333,9 @@ services:
         condition: service_healthy
     environment:
       AVERAGE_ID: 0
-      AVERAGE_AMOUNT: 2
-      TEXT_PROCESSOR_AMOUNT: 2
-      COMPARATOR_AMOUNT: 2
+      AVERAGE_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
 
   average_1:
     build:
@@ -173,9 +347,51 @@ services:
         condition: service_healthy
     environment:
       AVERAGE_ID: 1
-      AVERAGE_AMOUNT: 2
-      TEXT_PROCESSOR_AMOUNT: 2
-      COMPARATOR_AMOUNT: 2
+      AVERAGE_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  average_2:
+    build:
+      context: ./src
+      dockerfile: nodes/average/Dockerfile
+    container_name: average_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AVERAGE_ID: 2
+      AVERAGE_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  average_3:
+    build:
+      context: ./src
+      dockerfile: nodes/average/Dockerfile
+    container_name: average_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AVERAGE_ID: 3
+      AVERAGE_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
+
+  average_4:
+    build:
+      context: ./src
+      dockerfile: nodes/average/Dockerfile
+    container_name: average_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AVERAGE_ID: 4
+      AVERAGE_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+      COMPARATOR_AMOUNT: 5
 
   comparator_0:
     build:
@@ -187,8 +403,8 @@ services:
         condition: service_healthy
     environment:
       COMPARATOR_ID: 0
-      COMPARATOR_AMOUNT: 2
-      TEXT_PROCESSOR_AMOUNT: 2
+      COMPARATOR_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
 
   comparator_1:
     build:
@@ -200,8 +416,47 @@ services:
         condition: service_healthy
     environment:
       COMPARATOR_ID: 1
-      COMPARATOR_AMOUNT: 2
-      TEXT_PROCESSOR_AMOUNT: 2
+      COMPARATOR_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+
+  comparator_2:
+    build:
+      context: ./src
+      dockerfile: nodes/comparator/Dockerfile
+    container_name: comparator_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      COMPARATOR_ID: 2
+      COMPARATOR_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+
+  comparator_3:
+    build:
+      context: ./src
+      dockerfile: nodes/comparator/Dockerfile
+    container_name: comparator_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      COMPARATOR_ID: 3
+      COMPARATOR_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
+
+  comparator_4:
+    build:
+      context: ./src
+      dockerfile: nodes/comparator/Dockerfile
+    container_name: comparator_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      COMPARATOR_ID: 4
+      COMPARATOR_AMOUNT: 5
+      TEXT_PROCESSOR_AMOUNT: 5
 
   word_counter_0:
     build:
@@ -213,9 +468,9 @@ services:
         condition: service_healthy
     environment:
       WORD_COUNTER_ID: 0
-      TEXT_PROCESSOR_AMOUNT: 2
-      JOIN_Q3_AMOUNT: 1
-      TOP20_AMOUNT: 1
+      TEXT_PROCESSOR_AMOUNT: 5
+      JOIN_Q3_AMOUNT: 5
+      TOP20_AMOUNT: 5
 
   word_counter_1:
     build:
@@ -227,9 +482,51 @@ services:
         condition: service_healthy
     environment:
       WORD_COUNTER_ID: 1
-      TEXT_PROCESSOR_AMOUNT: 2
-      JOIN_Q3_AMOUNT: 1
-      TOP20_AMOUNT: 1
+      TEXT_PROCESSOR_AMOUNT: 5
+      JOIN_Q3_AMOUNT: 5
+      TOP20_AMOUNT: 5
+
+  word_counter_2:
+    build:
+      context: ./src
+      dockerfile: nodes/word_counter/Dockerfile
+    container_name: word_counter_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WORD_COUNTER_ID: 2
+      TEXT_PROCESSOR_AMOUNT: 5
+      JOIN_Q3_AMOUNT: 5
+      TOP20_AMOUNT: 5
+
+  word_counter_3:
+    build:
+      context: ./src
+      dockerfile: nodes/word_counter/Dockerfile
+    container_name: word_counter_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WORD_COUNTER_ID: 3
+      TEXT_PROCESSOR_AMOUNT: 5
+      JOIN_Q3_AMOUNT: 5
+      TOP20_AMOUNT: 5
+
+  word_counter_4:
+    build:
+      context: ./src
+      dockerfile: nodes/word_counter/Dockerfile
+    container_name: word_counter_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      WORD_COUNTER_ID: 4
+      TEXT_PROCESSOR_AMOUNT: 5
+      JOIN_Q3_AMOUNT: 5
+      TOP20_AMOUNT: 5
 
   join_q3_0:
     build:
@@ -241,7 +538,55 @@ services:
         condition: service_healthy
     environment:
       JOIN_Q3_ID: 0
-      WORD_COUNTER_AMOUNT: 2
+      WORD_COUNTER_AMOUNT: 5
+
+  join_q3_1:
+    build:
+      context: ./src
+      dockerfile: nodes/join_q3/Dockerfile
+    container_name: join_q3_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      JOIN_Q3_ID: 1
+      WORD_COUNTER_AMOUNT: 5
+
+  join_q3_2:
+    build:
+      context: ./src
+      dockerfile: nodes/join_q3/Dockerfile
+    container_name: join_q3_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      JOIN_Q3_ID: 2
+      WORD_COUNTER_AMOUNT: 5
+
+  join_q3_3:
+    build:
+      context: ./src
+      dockerfile: nodes/join_q3/Dockerfile
+    container_name: join_q3_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      JOIN_Q3_ID: 3
+      WORD_COUNTER_AMOUNT: 5
+
+  join_q3_4:
+    build:
+      context: ./src
+      dockerfile: nodes/join_q3/Dockerfile
+    container_name: join_q3_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      JOIN_Q3_ID: 4
+      WORD_COUNTER_AMOUNT: 5
 
   top20_0:
     build:
@@ -253,7 +598,55 @@ services:
         condition: service_healthy
     environment:
       TOP20_ID: 0
-      WORD_COUNTER_AMOUNT: 2
+      WORD_COUNTER_AMOUNT: 5
+
+  top20_1:
+    build:
+      context: ./src
+      dockerfile: nodes/top20/Dockerfile
+    container_name: top20_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TOP20_ID: 1
+      WORD_COUNTER_AMOUNT: 5
+
+  top20_2:
+    build:
+      context: ./src
+      dockerfile: nodes/top20/Dockerfile
+    container_name: top20_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TOP20_ID: 2
+      WORD_COUNTER_AMOUNT: 5
+
+  top20_3:
+    build:
+      context: ./src
+      dockerfile: nodes/top20/Dockerfile
+    container_name: top20_3
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TOP20_ID: 3
+      WORD_COUNTER_AMOUNT: 5
+
+  top20_4:
+    build:
+      context: ./src
+      dockerfile: nodes/top20/Dockerfile
+    container_name: top20_4
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TOP20_ID: 4
+      WORD_COUNTER_AMOUNT: 5
 
   client_0:
     build:

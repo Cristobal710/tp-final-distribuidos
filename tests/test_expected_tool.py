@@ -7,7 +7,7 @@ import os
 import tempfile
 import json
 import unittest
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -267,6 +267,42 @@ class ImagesTest(unittest.TestCase):
 
         with self.assertRaises(HTTPError):
             download("https://img", opener, lambda seconds: None)
+
+    def test_download_retries_server_and_connection_errors(self):
+        waits = []
+        answers = [HTTPError("u", 503, "", {"Retry-After": "7"}, None), URLError("sin red"), TimeoutError(),
+                   io.BytesIO(b"imagen")]
+
+        def opener(request, timeout):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        self.assertEqual(download("https://img", opener, waits.append), b"imagen")
+        self.assertEqual(waits, [7, 2, 2])
+
+    def test_a_failed_image_does_not_stop_the_rest_and_leaves_the_expected(self):
+        directory = tempfile.mkdtemp()
+        rows = [["Ada", "u1", "img1"], ["Bob", "u2", "img2"], ["Eva", "u3", "img3"]]
+        write_csv(directory, "q2.csv", ["name", "url", "image_url"], rows)
+
+        def fetch(image_url):
+            if image_url == "img1":
+                raise HTTPError("u", 404, "", {}, None)
+            if image_url == "img2":
+                raise RuntimeError("sin intentos")
+            return b"tres"
+
+        write_image_hashes(directory, fetch, sleep=lambda seconds: None)
+        self.assertEqual(read_csv(directory, "q2.csv"), [["Eva", "u3", "img3"]])
+        self.assertEqual(read_csv(directory, "q2_images.csv"), [["u3", hashlib.sha256(b"tres").hexdigest()]])
+
+    def test_the_expected_is_not_rewritten_when_every_image_is_available(self):
+        directory = tempfile.mkdtemp()
+        write_csv(directory, "q2.csv", ["name", "url", "image_url"], [["Ada", "u1", "img1"]])
+        write_image_hashes(directory, lambda image_url: b"uno", sleep=lambda seconds: None)
+        self.assertEqual(read_csv(directory, "q2.csv"), [["Ada", "u1", "img1"]])
 
 
 class SubsetTest(unittest.TestCase):
