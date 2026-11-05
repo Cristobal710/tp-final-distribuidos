@@ -15,8 +15,8 @@ services:
       retries: 10
       start_period: 50s
     ports:
-      - 5672:5672
-      - 15672:15672
+      - ${RABBITMQ_HOST_PORT:-5672}:5672
+      - ${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672
 
   gateway:
     build:

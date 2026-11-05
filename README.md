@@ -26,6 +26,11 @@ Requiere Docker, Python 3 e Internet para las imagenes reales. Ver [detalle de l
 
 Cada cliente escribe sus resultados en `results/<cliente>/`, un archivo JSONL por consulta (`q1.jsonl` … `q5.jsonl`).
 
+Los puertos de RabbitMQ en el host se configuran con `RABBITMQ_HOST_PORT` (`5672` por defecto) y
+`RABBITMQ_MANAGEMENT_HOST_PORT` (`15672` por defecto). Si el puerto `5672` ya esta ocupado, agrega
+`RABBITMQ_HOST_PORT=5673` al archivo `.env` de la raiz y vuelve a ejecutar `make run-subsets`.
+Los contenedores siguen conectandose a `rabbitmq:5672` dentro de la red de Docker.
+
 ### Cantidad de nodos
 
 La cantidad de instancias de cada nodo se elige en `nodes.env`. `docker-compose.yaml` se genera a partir de ese archivo, así que no hay que editarlo a mano. `make up`, `make run` y `make run-subsets` lo regeneran solos, y `make compose` lo regenera sin levantar nada. Al bajar una cantidad, las instancias que sobran se borran al levantar de nuevo. Sigue habiendo un solo gateway.
