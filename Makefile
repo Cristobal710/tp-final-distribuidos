@@ -88,6 +88,14 @@ test-full:
 	python3 -m tests.full_suite.run
 .PHONY: test-full
 
+test-reduced:
+	python3 -m tests.full_reduced.run
+.PHONY: test-reduced
+
+test-q2-live:
+	python3 -m tests.q2_live.run
+.PHONY: test-q2-live
+
 test-publisher:
 	python3 -m tests.run_publisher_check
 .PHONY: test-publisher

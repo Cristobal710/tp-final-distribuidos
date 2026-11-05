@@ -1,8 +1,8 @@
 """Independent live-image reference, deliberately separate from the application downloader."""
 import hashlib
+import math
 import os
 import threading
-import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
@@ -10,15 +10,12 @@ import requests
 
 from common.request_throttle import RequestThrottle
 
-MAX_IMAGE_BYTES = 0
-USER_AGENT = "DistributedWikipediaFullSuite/1.0 (local integration test)"
-THROTTLE = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "1.5")))
-
-
-class ImageHostRateLimited(RuntimeError):
-    def __init__(self, message, retry_after_seconds=0):
-        super().__init__(message)
-        self.retry_after_seconds = retry_after_seconds
+USER_AGENT = (
+    "DistributedWikipediaFullSuiteBot/1.0 "
+    "(https://github.com/Cristobal710/tp-final-distribuidos) "
+    f"python-requests/{requests.__version__}"
+)
+THROTTLE = RequestThrottle(float(os.environ.get("DOWNLOAD_INTERVAL_SECONDS", "0")))
 
 
 def retry_after(value):
@@ -31,14 +28,20 @@ def retry_after(value):
             return 0
 
 
-def snapshot_image(url, attempts=3, timeout=20, max_bytes=MAX_IMAGE_BYTES):
-    for attempt in range(attempts):
-        THROTTLE.wait(threading.Event())
-        delay = 2 ** attempt
+def snapshot_image(url, timeout=20, stop_event=None):
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("The image timeout must be finite and positive")
+    stop_event = stop_event if stop_event is not None else threading.Event()
+    attempt, backoff = 0, 1
+    while True:
+        if stop_event.is_set() or not THROTTLE.wait(stop_event):
+            raise InterruptedError(f"Live image reference cancelled: {url}")
+        attempt += 1
+        delay = backoff
         try:
             with requests.get(url, stream=True, timeout=timeout,
                               headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"}) as response:
-                if response.status_code == 429 or response.status_code >= 500:
+                if response.status_code == 429 or 500 <= response.status_code < 600:
                     delay = max(delay, retry_after(response.headers.get("Retry-After")))
                     response.raise_for_status()
                 if not response.ok:
@@ -46,13 +49,11 @@ def snapshot_image(url, attempts=3, timeout=20, max_bytes=MAX_IMAGE_BYTES):
                 content_type = response.headers.get("Content-Type", "").split(";")[0].lower()
                 if not content_type.startswith("image/"):
                     return {"success": False, "reason": "not an image"}
-                if max_bytes and int(response.headers.get("Content-Length", 0)) > max_bytes:
-                    return {"success": False, "reason": "image too large"}
                 digest, size = hashlib.sha256(), 0
                 for chunk in response.iter_content(65536):
+                    if stop_event.is_set():
+                        raise InterruptedError(f"Live image reference cancelled: {url}")
                     size += len(chunk)
-                    if max_bytes and size > max_bytes:
-                        return {"success": False, "reason": "image too large"}
                     digest.update(chunk)
                 if not size:
                     return {"success": False, "reason": "empty image"}
@@ -61,12 +62,8 @@ def snapshot_image(url, attempts=3, timeout=20, max_bytes=MAX_IMAGE_BYTES):
                         "last_modified": response.headers.get("Last-Modified"),
                         "fetched_at": datetime.now(timezone.utc).isoformat()}
         except requests.RequestException as error:
-            if attempt + 1 == attempts:
-                if (error.response is not None and error.response.status_code == 429
-                        and retry_after(error.response.headers.get("Retry-After")) > 0):
-                    raise ImageHostRateLimited(f"Image host is still rate limiting after retries: {url}",
-                                               retry_after(error.response.headers.get("Retry-After"))) from error
-                raise RuntimeError(f"Live image preflight failed for {url}: {error}") from error
-            print(f"Live image retry in {delay:g}s (attempt {attempt + 2}/{attempts})", flush=True)
-            time.sleep(delay)
+            print(f"Live image retry in {delay:g}s (attempt {attempt + 1})", flush=True)
+            if stop_event.wait(delay):
+                raise InterruptedError(f"Live image reference cancelled: {url}") from error
+            backoff = min(backoff * 2, 60)
 

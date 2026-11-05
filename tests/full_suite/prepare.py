@@ -13,7 +13,7 @@ from zipfile import ZipFile
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from tests.full_suite.images import ImageHostRateLimited, snapshot_image
+from tests.full_suite.images import snapshot_image
 
 COLUMNS = ["name", "url", "in_language", "date_created", "date_modified", "abstract", "sections", "image"]
 TARGET_BYTES = 2_000_000_000
@@ -159,12 +159,6 @@ def prepare(archive_path, output_dir, target_bytes=TARGET_BYTES, images_per_lang
                                         time.sleep(delay)
                                         try:
                                             image_snapshots[url] = snapshot_image(url)
-                                        except ImageHostRateLimited as error:
-                                            image_snapshots[url] = {"success": False, "reason": str(error),
-                                                "retry_not_before": time.time() + error.retry_after_seconds}
-                                            with open(cache_path, "a") as cache:
-                                                cache.write(json.dumps({"url": url, "snapshot": image_snapshots[url]}) + "\n")
-                                            raise
                                         except RuntimeError as error:
                                             # Selection is still open: exclude this original row before freezing expectations.
                                             image_snapshots[url] = {"success": False, "reason": str(error)}

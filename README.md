@@ -12,6 +12,12 @@ Sistema distribuido que analiza los artículos en inglés y francés del dataset
 
 `make test`: corre los tests dentro de un contenedor.
 
+`make test-reduced`: construye las imagenes, corre los tests y ejecuta todo el sistema con dos clientes de
+15 articulos cada uno. Compara Q1–Q5 y verifica los bytes de Q2 contra la cache de archivos.
+
+`make test-q2-live`: ejecuta Q2 con los dos subsets y descargas HTTP reales; repite la entrada con la cache
+cargada y exige las mismas imagenes sin nuevos pedidos HTTP. Guarda los informes en `.artifacts/q2-live/`.
+
 `make test-full`: construye una particion real de 2 GB desde `~/Downloads/distr_dataset.zip`, ejecuta un solo
 cliente contra todos los nodos y compara Q1–Q5 recibidas por TCP contra un calculo independiente.
 Requiere Docker, Python 3 e Internet para las imagenes reales. Ver [detalle de la suite](tests/full_suite/README.md).
@@ -246,12 +252,9 @@ verifica este comportamiento contra un broker real.
 | `CONTROL_EXCHANGE` | Exchange para compartir EOF entre descargadores | `control_image_downloader` |
 | `RESULTS_QUEUE_PREFIX` | Prefijo de las colas por gateway | `resultados` |
 | `DOWNLOAD_TIMEOUT_SECONDS` | Timeout de las operaciones de red y presupuesto por intento, revisado entre lecturas | `10` |
-| `DOWNLOAD_ATTEMPTS` | Intentos por imagen, incluyendo el primero | `3` |
-| `DOWNLOAD_RETRY_SECONDS` | Espera inicial entre intentos; se duplica en cada reintento | `1` |
-| `DOWNLOAD_INTERVAL_SECONDS` | Intervalo minimo entre inicios de intentos HTTP por descargador; `0` desactiva el throttle | `1.5` |
+| `DOWNLOAD_RETRY_SECONDS` | Espera inicial entre intentos; se duplica hasta 60 segundos o la espera inicial si es mayor, respetando Retry-After | `1` |
+| `DOWNLOAD_INTERVAL_SECONDS` | Intervalo minimo entre inicios de intentos HTTP por descargador; `0` desactiva el throttle | `0` |
 | `IMAGE_CACHE_DIR` | Directorio de la cache persistente de imagenes; vacio la desactiva | `/cache/q2` |
-| `IMAGE_CACHE_MAX_BYTES` | Limite de bytes de imagenes en cache, sin contar metadatos SQLite; `0` la desactiva | `268435456` |
-| `MAX_IMAGE_BYTES` | Maximo de bytes originales de una imagen; `0` desactiva el limite | `0` |
 | `MAX_RESULT_BYTES` | Maximo de bytes del resultado JSON completo | `67108864` |
 | `PUBLISHER_IDLE_SECONDS` | Tiempo ocioso antes de renovar una conexion de salida | `30` |
 
@@ -362,25 +365,29 @@ El hilo del consumidor sigue atendiendo RabbitMQ y es el unico que publica, actu
 Cada descarga exitosa publica una fila `[name, url, image_bytes]` en `resultados.<gateway_id>`, con `query=2`.
 image_bytes es una lista de enteros de 0 a 255 que conserva el archivo original. No se acumulan imagenes entre resultados.
 
-`DOWNLOAD_INTERVAL_SECONDS` separa los inicios de intentos HTTP en cada descargador, incluidos los reintentos.
-La espera ocurre en el hilo de descarga, se puede cancelar con SIGTERM y no consume el timeout de red.
-Con dos replicas y el valor por defecto de 1.5 segundos, el ritmo sostenido combinado es de aproximadamente 1.33 intentos por segundo;
-pueden iniciar a la vez, porque no hay un coordinador global. Al agregar replicas hay que aumentar el intervalo.
-Para cambiarlo desde el host: `DOWNLOAD_INTERVAL_SECONDS=3 make run-subsets`.
+`DOWNLOAD_INTERVAL_SECONDS` vale `0` por defecto: cada descargador puede iniciar la siguiente descarga sin una espera fija.
+Las dos replicas del Compose permiten hasta dos descargas simultaneas, con un solo pedido HTTP activo por instancia.
+El backoff y Retry-After siguen aplicandose a los reintentos.
+Para separar los inicios de intentos HTTP por descargador, incluidos los reintentos:
+`DOWNLOAD_INTERVAL_SECONDS=3 make run-subsets`.
+Esa espera ocurre en el hilo de descarga, se puede cancelar con SIGTERM y no consume el timeout de red.
 
-Los dos descargadores comparten una cache SQLite en `.cache/q2/`, montada en `/cache/q2`.
-Guarda solo descargas exitosas, por URL y con los bytes originales, y se conserva entre ejecuciones y reconstrucciones.
+Los dos descargadores comparten una cache de archivos en `.cache/q2/`, montada en `/cache/q2`.
+Cada imagen ocupa un archivo `.img` con sus bytes originales y el SHA-256 de su URL como nombre; no usa bases de datos.
+Guarda solo descargas exitosas y se conserva entre ejecuciones y reconstrucciones.
+Un lock sobre `cache.lock` coordina las replicas, y las escrituras usan un archivo temporal y un reemplazo atomico.
 Una imagen en cache evita el HTTP y la espera, pero cada articulo sigue generando su propio resultado.
-El limite por defecto es 256 MiB de imagenes; al llenarse se eliminan las menos usadas recientemente.
-`IMAGE_CACHE_MAX_BYTES=0 make run-subsets` la desactiva. Los errores de lectura o escritura de cache no impiden la descarga.
+La cache no tiene limite de capacidad, TTL ni eliminacion automatica: conserva las imagenes hasta que se borren manualmente.
+`IMAGE_CACHE_DIR= make run-subsets` la desactiva. Los errores de lectura o escritura de cache no impiden la descarga.
 La cache no revalida URLs: para comprobar cambios en el servidor hay que desactivarla o quitar `.cache/q2/` con el sistema detenido.
 Dos misses simultaneos de la misma URL pueden descargarla dos veces; no se coordinan descargas entre replicas.
 
 HTTP usa la biblioteca estandar de Python y un User-Agent identificable, sigue redirects y exige Content-Type image/*.
-Los timeouts, errores de conexion, HTTP 429 y 5xx se reintentan con espera exponencial y cantidad limitada de intentos.
-Si el servidor indica `Retry-After`, se respeta esa espera; SIGTERM puede interrumpirla.
+Los timeouts, errores de conexion, HTTP 429 y 5xx se reintentan sin limite de intentos hasta descargar la imagen o recibir SIGTERM.
+La espera exponencial crece hasta 60 segundos (o la espera inicial si es mayor), para no desbordar tras muchos reintentos.
+Si el servidor indica un `Retry-After` mayor, se respeta esa espera; SIGTERM puede interrumpirla.
 Las URL invalidas, otros errores HTTP y respuestas vacias o que no son imagenes se descartan.
-Las imagenes no tienen limite de bytes por defecto. Si se configura `MAX_IMAGE_BYTES`, se aplica tambien sin Content-Length.
+Las descargas y las lecturas de cache no tienen limite por imagen, con o sin Content-Length.
 El resultado JSON completo tiene un limite de 64 MiB, igual al maximo del protocolo, porque ocupa mas que la imagen original.
 SIGTERM cancela los reintentos y deja sin ack el batch que no termino. Un fallo de publicacion tambien deja el batch sin ack;
 si vuelve a entregarse despues de una publicacion parcial, puede repetir resultados.

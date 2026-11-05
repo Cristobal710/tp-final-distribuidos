@@ -1,6 +1,5 @@
 import hashlib
 import json
-import sqlite3
 import tempfile
 import unittest
 from datetime import datetime
@@ -48,14 +47,10 @@ class FullSuiteReferenceTest(unittest.TestCase):
 
     def make_actual(self):
         counts = {}
-        with sqlite3.connect(self.expected / "expected.sqlite") as db:
-            for query in range(1, 6):
-                rows = [json.loads(row) for row, n in db.execute(
-                    "SELECT row,n FROM expected WHERE query=? ORDER BY row", (query,)) for _ in range(n)]
-                if query == 4:
-                    rows = json.loads((self.expected / "q4_ordered.json").read_text())
-                (self.actual / f"q{query}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-                counts[str(query)] = len(rows)
+        for query in range(1, 6):
+            rows = [json.loads(line) for line in (self.expected / f"q{query}.jsonl").read_text().splitlines()]
+            (self.actual / f"q{query}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            counts[str(query)] = len(rows)
         images = self.actual / "images"
         images.mkdir(exist_ok=True)
         (images / f"{hashlib.sha256(self.image).hexdigest()}.bin").write_bytes(self.image)
@@ -64,11 +59,8 @@ class FullSuiteReferenceTest(unittest.TestCase):
 
     def test_independent_distinct_counts_date_boundary_and_live_bytes(self):
         self.assertEqual((self.summary["historical_words"], self.summary["historical_articles"]), (25, 2))
-        with sqlite3.connect(self.expected / "expected.sqlite") as db:
-            self.assertEqual(json.loads(db.execute("SELECT row FROM expected WHERE query=5").fetchone()[0]),
-                             ["new-high", 21])
-            self.assertEqual(json.loads(db.execute("SELECT row FROM expected WHERE query=3").fetchone()[0]), ["shared"])
-            self.assertEqual(json.loads(db.execute("SELECT row FROM expected WHERE query=1").fetchone()[0]), ["old-en", 1000])
+        for query, row in ((5, ["new-high", 21]), (3, ["shared"]), (1, ["old-en", 1000])):
+            self.assertEqual(json.loads((self.expected / f"q{query}.jsonl").read_text()), row)
         self.make_actual()
         self.assertTrue(validate(self.dataset, self.expected, self.actual, self.root)["passed"])
 
@@ -79,6 +71,16 @@ class FullSuiteReferenceTest(unittest.TestCase):
         summary_path = self.actual / "summary.json"
         summary = json.loads(summary_path.read_text())
         summary["received_rows"]["1"] = 2
+        summary_path.write_text(json.dumps(summary))
+        with self.assertRaises(AssertionError):
+            validate(self.dataset, self.expected, self.actual, self.root)
+
+    def test_validator_rejects_missing_result_even_with_consistent_summary(self):
+        self.make_actual()
+        (self.actual / "q1.jsonl").write_text("")
+        summary_path = self.actual / "summary.json"
+        summary = json.loads(summary_path.read_text())
+        summary["received_rows"]["1"] = 0
         summary_path.write_text(json.dumps(summary))
         with self.assertRaises(AssertionError):
             validate(self.dataset, self.expected, self.actual, self.root)

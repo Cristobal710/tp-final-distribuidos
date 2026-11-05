@@ -48,8 +48,11 @@ esta incompleta y se debe quitar su directorio `dataset` o usar otro directorio 
 Una particion completa se reutiliza solo despues de verificar los checksums.
 Tambien se verifican los CRC de los miembros originales del ZIP antes de reutilizarla.
 
-Antes de iniciar la aplicacion, el oracle recorre la particion con PyArrow y SQLite. No importa los clasificadores
-ni funciones de consulta de produccion. Congela las stopwords de la imagen del Text processor, cuenta palabras
+Antes de iniciar la aplicacion, el oracle lee los archivos Parquet con PyArrow y acumula los resultados esperados
+en archivos JSONL. Ordena los archivos por bloques y combina esos bloques en disco para contar palabras y comparar
+resultados sin cargar toda la particion en memoria. La cache de imagenes de Q2 usa archivos `.img` con los bytes originales.
+El oracle no importa los clasificadores ni funciones de consulta de produccion.
+Congela las stopwords de la imagen del Text processor, cuenta palabras
 distintas para Q5 y compara exactamente contra el promedio como fraccion entera. Verifica cobertura positiva de
 las cinco consultas, negativas de Q3/Q5 y 20 resultados de Q4.
 Ademas exporta `expected/q1.jsonl` hasta `q5.jsonl`, incluidos los duplicados esperados. `expected/scenarios.json`
@@ -59,8 +62,13 @@ esa regla se verifica con un caso pequeno de expectativa conocida.
 
 Q2 usa descargas HTTP reales tanto para el oracle como para los nodos. Se comparan SHA-256 y cantidad de bytes
 de cada archivo recibido. El oracle siempre descarga en vivo; los nodos pueden reutilizar su cache de imagenes.
-Para forzar descargas nuevas en los nodos: `IMAGE_CACHE_MAX_BYTES=0 make test-full`.
-Ambos usan `DOWNLOAD_INTERVAL_SECONDS` (1.5 segundos por proceso por defecto), configurable desde el host.
+Los dos descargadores comparten `.cache/q2/`, montada en `/cache/q2`. Cada imagen se guarda en un archivo `.img`
+cuyo nombre es el SHA-256 de su URL. La cache no tiene TTL ni limite de capacidad; las descargas no tienen limite
+de tamanio por imagen ni de reintentos transitorios. Cada nodo descarga una imagen a la vez, hasta dos en total.
+Para forzar descargas nuevas en los nodos: `IMAGE_CACHE_DIR= make test-full`.
+Ambos usan `DOWNLOAD_INTERVAL_SECONDS` (`0` por defecto, sin espera fija entre intentos), configurable desde el host.
+El oracle no limita el tamanio de las imagenes ni la cantidad de reintentos transitorios. Respeta Retry-After
+y la espera exponencial hasta 60 segundos; el timeout de la etapa limita la duracion de la prueba.
 No hay servidor de imagenes grabadas. Se respeta Retry-After, por lo que una limitacion
 del servidor puede extender la ejecucion varios minutos. Una caida HTTP persistente, una imagen modificada o un
 resultado faltante hacen fallar la prueba; las expectativas nunca se ajustan a la salida de la aplicacion.
@@ -83,7 +91,8 @@ Los contenedores y volumenes del proyecto aislado se eliminan al finalizar. Los 
 `.artifacts/full-suite/`, ignorado por Git:
 
 - `dataset/`: particion, manifest y procedencia.
-- `runs/<fecha>/expected/`: resultados SQLite y JSONL de Q1–Q5, imagenes esperadas, resumen y `scenarios.json`.
+- `runs/<fecha>/expected/`: resultados JSONL de Q1–Q5, metadatos de imagenes en
+  `images.json`, resumen y `scenarios.json`.
 - `runs/<fecha>/actual/`: JSONL e imagenes recibidos por el cliente y su resumen.
 - `runs/<fecha>/report.json`: comparacion por consulta, con ejemplos de diferencias si las hay.
 - `runs/<fecha>/client.log`, `containers.log`, `queues.txt`: diagnostico del sistema real.
@@ -91,3 +100,14 @@ Los contenedores y volumenes del proyecto aislado se eliminan al finalizar. Los 
 
 Las opciones `--target-bytes` y `--images-per-language` permiten probar el runner con un conjunto menor en otro
 directorio de artefactos. Una ejecucion reducida no reemplaza la prueba completa de 2 GB.
+
+`make test-reduced` corre los tests y el sistema completo con los dos subsets de 15 articulos, comparando
+Q1–Q5 y los bytes recibidos con los archivos `.img` de la cache. `make test-q2-live` verifica Q2 en una
+primera ejecucion con cache vacia y otra con cache cargada; la segunda no debe hacer pedidos HTTP.
+Sus runners estan en `tests/full_reduced/` y `tests/q2_live/`; los resultados se guardan en `.artifacts/`.
+Si las imagenes ya estan construidas, `python3 -m tests.full_reduced.run --no-build` y
+`python3 -m tests.q2_live.run --no-build` permiten reutilizarlas.
+Ambos aceptan `--timeout` para el plazo de los clientes (900 segundos por defecto); ese plazo de prueba
+no limita la cantidad de reintentos del descargador.
+El runner reducido acepta `--cache-dir /ruta/cache` para verificar el pipeline con imagenes ya descargadas
+sin repetir los pedidos HTTP. Sin esa opcion, cada ejecucion reducida comienza con una cache vacia.

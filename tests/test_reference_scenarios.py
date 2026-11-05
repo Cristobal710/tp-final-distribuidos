@@ -71,6 +71,16 @@ class ReferenceScenariosTest(unittest.TestCase):
             article("old-fr", language="fr"), article("unknown", date=None), article("no-modified", date_modified=None)])
         self.assertEqual(result[1], [["old-en", 1000]])
 
+    def test_duplicate_articles_preserve_result_multiplicity_and_word_counts(self):
+        row = article("old-en", "shared shared")
+        result, summary, _ = self.reference([row, row, article("old-fr", "shared", language="fr"),
+                                              article("new", "shared extra", NEW)])
+        self.assertEqual(result[1], [["old-en", 1000], ["old-en", 1000]])
+        self.assertEqual(result[3], [["shared"]])
+        self.assertEqual(result[4], [["shared", 4], ["extra", 1]])
+        self.assertEqual(result[5], [["new", 2]])
+        self.assertEqual((summary["historical_words"], summary["historical_articles"]), (3, 3))
+
     def test_q2_filters_before_download_and_excludes_permanent_http_failure(self):
         def fetch(url):
             return ({"success": False, "reason": "HTTP 404"} if url == "bad" else

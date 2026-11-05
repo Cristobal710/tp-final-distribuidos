@@ -42,7 +42,7 @@ def execute(archive, artifacts, timeout=7200, target_bytes=2_000_000_000, images
         name = f"tpfull-{run_id}-{module.rsplit('.', 1)[-1]}"
         try:
             return command(["docker", "run", "--rm", "--name", name, "--user", f"{os.getuid()}:{os.getgid()}",
-                            "-e", f"DOWNLOAD_INTERVAL_SECONDS={os.environ.get('DOWNLOAD_INTERVAL_SECONDS', '1.5')}",
+                            "-e", f"DOWNLOAD_INTERVAL_SECONDS={os.environ.get('DOWNLOAD_INTERVAL_SECONDS', '0')}",
                             "-v", f"{ROOT}:/repo:ro", "-v", f"{archive}:/source/distr_dataset.zip:ro",
                             "-v", f"{artifacts}:/artifacts", "-w", "/repo", "--entrypoint", "python3",
                             image_names["client_0"], "-m", module, *arguments], timeout=timeout)

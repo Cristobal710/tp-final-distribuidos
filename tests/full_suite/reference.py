@@ -1,16 +1,21 @@
 """Independent streaming oracle; no production query/processing code is imported."""
 import argparse
 import hashlib
+import heapq
 import json
 import re
-import sqlite3
 from collections import Counter
+from contextlib import ExitStack
 from datetime import datetime
+from itertools import groupby
 from pathlib import Path
+from shutil import copyfile
+from tempfile import TemporaryDirectory
 
 import pyarrow.parquet as pq
 
 from tests.full_suite.images import snapshot_image
+from tests.full_suite.files import compare_files, sort_file
 
 BOUNDARY = datetime(2021, 1, 1)
 EPOCH = datetime(1970, 1, 1)
@@ -25,12 +30,24 @@ def milliseconds(value):
     return delta.days * 86400000 + delta.seconds * 1000 + delta.microseconds // 1000
 
 
-def add_expected(connection, query, rows):
-    counts = Counter(canonical(row) for row in rows)
-    connection.executemany(
-        "INSERT INTO expected VALUES(?,?,?) ON CONFLICT(query,row) DO UPDATE SET n=n+excluded.n",
-        ((query, row, count) for row, count in counts.items()),
-    )
+def add_expected(outputs, counts, query, rows):
+    for row in rows:
+        outputs[query].write(canonical(row) + "\n")
+        counts[query] += 1
+
+
+def word_counts(source, directory):
+    target = directory / "words-sorted.jsonl"
+    sort_file(source, target)
+    with target.open(encoding="utf-8") as input_file:
+        entries = (json.loads(line) for line in input_file)
+        for word, group in groupby(entries, key=lambda row: row[0]):
+            articles, en, fr = 0, False, False
+            for _, count, english, french in group:
+                articles += count
+                en |= bool(english)
+                fr |= bool(french)
+            yield word, articles, en, fr
 
 
 def calculate(dataset, output, stopwords_path, require_coverage=True):
@@ -38,21 +55,9 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
     output.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((dataset / "manifest.json").read_text())
     stopwords = set(json.loads(Path(stopwords_path).read_text()))
-    db_path = output / "expected.sqlite"
-    for suffix in ("", "-wal", "-shm"):
-        Path(str(db_path) + suffix).unlink(missing_ok=True)
-    db = sqlite3.connect(db_path)
-    db.executescript("""
-        PRAGMA journal_mode=WAL;
-        PRAGMA synchronous=NORMAL;
-        PRAGMA cache_size=-131072;
-        CREATE TABLE expected(query INTEGER, row TEXT, n INTEGER, PRIMARY KEY(query,row)) WITHOUT ROWID;
-        CREATE TABLE words(word TEXT PRIMARY KEY, articles INTEGER, en INTEGER, fr INTEGER) WITHOUT ROWID;
-        CREATE TABLE candidates(url TEXT, words INTEGER);
-        CREATE TABLE images(name TEXT, url TEXT, image_url TEXT, language TEXT);
-    """)
     historical_words = historical_articles = total_rows = 0
     coverage = Counter()
+    counts = Counter()
     examples = {}
 
     def record(name, url):
@@ -61,7 +66,13 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
         if len(sample) < 3 and url not in sample:
             sample.append(url)
 
-    try:
+    with TemporaryDirectory(prefix=".reference-", dir=output) as directory, ExitStack() as stack:
+        directory = Path(directory)
+        outputs = {query: stack.enter_context((directory / f"q{query}.jsonl").open("w", encoding="utf-8"))
+                   for query in range(1, 6)}
+        words_file = stack.enter_context((directory / "words.jsonl").open("w", encoding="utf-8"))
+        candidates_file = stack.enter_context((directory / "candidates.jsonl").open("w", encoding="utf-8"))
+        images_file = stack.enter_context((directory / "images.jsonl").open("w", encoding="utf-8"))
         for part in manifest["parts"]:
             parquet = pq.ParquetFile(dataset / part["file"])
             for batch in parquet.iter_batches(batch_size=1024):
@@ -129,30 +140,38 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
                         historical_articles += 1
                     elif recent:
                         candidates.append((row["url"], len(distinct)))
-                add_expected(db, 1, q1)
-                db.executemany("INSERT INTO candidates VALUES(?,?)", candidates)
-                db.executemany("INSERT INTO images VALUES(?,?,?,?)", images)
-                db.executemany("""INSERT INTO words VALUES(?,?,?,?) ON CONFLICT(word) DO UPDATE SET
-                    articles=articles+excluded.articles,en=max(en,excluded.en),fr=max(fr,excluded.fr)""",
-                               ((word, *counts) for word, counts in words.items()))
-                db.commit()
+                add_expected(outputs, counts, 1, q1)
+                candidates_file.writelines(canonical(row) + "\n" for row in candidates)
+                images_file.writelines(canonical(row) + "\n" for row in images)
+                words_file.writelines(canonical([word, *values]) + "\n" for word, values in words.items())
             parquet.close()
             print(f"Reference: {total_rows:,}/{manifest['rows']:,} rows", flush=True)
         if total_rows != manifest["rows"]:
             raise AssertionError("Partition row count does not match manifest")
-        shared = db.execute("SELECT word FROM words WHERE en=1 AND fr=1")
-        while rows := shared.fetchmany(4096):
-            add_expected(db, 3, rows)
-        ranked = [list(row) for row in db.execute("SELECT word,articles FROM words ORDER BY articles DESC,word COLLATE BINARY LIMIT 21")]
+        words_file.close()
+        candidates_file.close()
+        images_file.close()
+        coverage["q3_en_exclusive"] = coverage["q3_fr_exclusive"] = 0
+
+        def ranked_words():
+            for word, articles, en, fr in word_counts(directory / "words.jsonl", directory):
+                if en and fr:
+                    add_expected(outputs, counts, 3, [[word]])
+                elif en:
+                    coverage["q3_en_exclusive"] += 1
+                elif fr:
+                    coverage["q3_fr_exclusive"] += 1
+                yield word, articles
+
+        ranked = [list(row) for row in heapq.nsmallest(21, ranked_words(), key=lambda row: (-row[1], row[0]))]
         top = ranked[:20]
         coverage["q4_tied_counts_in_top20"] = sum(a[1] == b[1] for a, b in zip(top, top[1:]))
         coverage["q4_tie_at_cutoff"] = int(len(ranked) == 21 and ranked[19][1] == ranked[20][1])
-        add_expected(db, 4, top)
+        add_expected(outputs, counts, 4, top)
         (output / "q4_ordered.json").write_text(json.dumps(top, ensure_ascii=False, indent=2))
-        candidates = db.execute("SELECT url,words FROM candidates")
-        while rows := candidates.fetchmany(4096):
-            matched = []
-            for url, count in rows:
+        with (directory / "candidates.jsonl").open(encoding="utf-8") as source:
+            for line in source:
+                url, count = json.loads(line)
                 matches = historical_articles > 0 and count * historical_articles > historical_words
                 coverage["q5_above" if matches else "q5_not_above"] += 1
                 relation = ("no_historical_baseline" if historical_articles == 0 else
@@ -160,21 +179,22 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
                             "below_average" if count * historical_articles < historical_words else "above_average")
                 record(f"q5_{relation}", url)
                 if matches:
-                    matched.append([url, count])
-            add_expected(db, 5, matched)
+                    add_expected(outputs, counts, 5, [[url, count]])
         snapshots = {}
-        for name, url, image_url, language in db.execute("SELECT name,url,image_url,language FROM images"):
-            if image_url not in snapshots:
-                snapshots[image_url] = snapshot_image(image_url)
-                print(f"Reference live image {len(snapshots)}: {snapshots[image_url]['success']}", flush=True)
-            image = snapshots[image_url]
-            if image["success"]:
-                add_expected(db, 2, [[name, url, image["sha256"], image["bytes"]]])
-                coverage[f"q2_{language}_success"] += 1
-            else:
-                record("q2_download_failed", url)
+        with (directory / "images.jsonl").open(encoding="utf-8") as source:
+            for line in source:
+                name, url, image_url, language = json.loads(line)
+                if image_url not in snapshots:
+                    snapshots[image_url] = snapshot_image(image_url)
+                    print(f"Reference live image {len(snapshots)}: {snapshots[image_url]['success']}", flush=True)
+                image = snapshots[image_url]
+                if image["success"]:
+                    add_expected(outputs, counts, 2, [[name, url, image["sha256"], image["bytes"]]])
+                    coverage[f"q2_{language}_success"] += 1
+                else:
+                    record("q2_download_failed", url)
         for query in range(1, 6):
-            coverage[f"q{query}_rows"] = db.execute("SELECT coalesce(sum(n),0) FROM expected WHERE query=?", (query,)).fetchone()[0]
+            coverage[f"q{query}_rows"] = counts[query]
             if require_coverage and coverage[f"q{query}_rows"] == 0:
                 raise AssertionError(f"Partition gives no positive coverage for Q{query}")
         for language in ("en", "fr"):
@@ -183,21 +203,16 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
         if require_coverage and (coverage["q5_not_above"] == 0 or len(top) != 20):
             raise AssertionError("Missing negative Q5 or top-20 coverage")
         for language in ("en", "fr"):
-            exclusive = db.execute(f"SELECT count(*) FROM words WHERE {language}=1 AND {'fr' if language=='en' else 'en'}=0").fetchone()[0]
-            coverage[f"q3_{language}_exclusive"] = exclusive
-            if require_coverage and exclusive == 0:
+            if require_coverage and coverage[f"q3_{language}_exclusive"] == 0:
                 raise AssertionError(f"No exclusive {language} words for Q3 negative coverage")
-        db.commit()
-        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         for query in range(1, 6):
-            with (output / f"q{query}.jsonl").open("w") as target:
-                if query == 4:
-                    for row in top:
-                        target.write(canonical(row) + "\n")
-                else:
-                    for row, count in db.execute("SELECT row,n FROM expected WHERE query=? ORDER BY row", (query,)):
-                        for _ in range(count):
-                            target.write(row + "\n")
+            outputs[query].close()
+            source = directory / f"q{query}.jsonl"
+            target = output / source.name
+            if query == 4:
+                copyfile(source, target)
+            else:
+                sort_file(source, target)
         summary = {"rows": total_rows, "historical_words": historical_words, "historical_articles": historical_articles,
                    "partition_manifest_sha256": hashlib.sha256((dataset / "manifest.json").read_bytes()).hexdigest(),
                    "stopwords_sha256": hashlib.sha256(Path(stopwords_path).read_bytes()).hexdigest(), "coverage": dict(coverage)}
@@ -215,8 +230,6 @@ def calculate(dataset, output, stopwords_path, require_coverage=True):
         } for name in scenarios}, ensure_ascii=False, indent=2))
         print(json.dumps(summary), flush=True)
         return summary
-    finally:
-        db.close()
 
 
 def validate(dataset, expected, actual, output):
@@ -228,16 +241,15 @@ def validate(dataset, expected, actual, output):
     summary = json.loads((actual / "summary.json").read_text())
     if summary["sent_rows"] != manifest["rows"] or not summary["all_done"] or summary["finished_queries"] != [1, 2, 3, 4, 5]:
         raise AssertionError("Client input or completion summary does not match the partition")
-    db_path = output / "comparison.sqlite"
-    db_path.unlink(missing_ok=True)
-    db = sqlite3.connect(db_path)
+    output.mkdir(parents=True, exist_ok=True)
     report = {"passed": True, "partition_bytes": manifest["bytes"], "input_rows": manifest["rows"], "queries": {}}
-    try:
-        db.execute("CREATE TABLE actual(query INTEGER,row TEXT,n INTEGER,PRIMARY KEY(query,row)) WITHOUT ROWID")
-        db.execute("ATTACH DATABASE ? AS reference", (str(expected / "expected.sqlite"),))
+    with TemporaryDirectory(prefix=".comparison-", dir=output) as directory:
+        directory = Path(directory)
         for query in range(1, 6):
-            count, pending, ordered = 0, Counter(), []
-            with open(actual / f"q{query}.jsonl") as source:
+            count, order_ok = 0, True
+            ordered = json.loads((expected / "q4_ordered.json").read_text()) if query == 4 else None
+            normalized = directory / f"q{query}.jsonl"
+            with (actual / normalized.name).open(encoding="utf-8") as source, normalized.open("w", encoding="utf-8") as target:
                 for line in source:
                     row = json.loads(line)
                     if query == 2:
@@ -246,37 +258,25 @@ def validate(dataset, expected, actual, output):
                         if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
                             raise AssertionError(f"Corrupt received image: {url}")
                     if query == 4:
-                        ordered.append(row)
-                    pending[canonical(row)] += 1
+                        if count >= len(ordered) or row != ordered[count]:
+                            order_ok = False
+                    target.write(canonical(row) + "\n")
                     count += 1
-                    if len(pending) >= 4096:
-                        db.executemany("INSERT INTO actual VALUES(?,?,?) ON CONFLICT(query,row) DO UPDATE SET n=n+excluded.n",
-                                       ((query, row, n) for row, n in pending.items()))
-                        pending.clear()
-            db.executemany("INSERT INTO actual VALUES(?,?,?) ON CONFLICT(query,row) DO UPDATE SET n=n+excluded.n",
-                           ((query, row, n) for row, n in pending.items()))
+            if query == 4:
+                order_ok &= count == len(ordered)
             if count != summary["received_rows"][str(query)]:
                 raise AssertionError(f"Receiver row count mismatch for Q{query}")
-            missing = list(db.execute("""SELECT e.row,e.n-coalesce(a.n,0) FROM reference.expected e
-                LEFT JOIN actual a ON a.query=e.query AND a.row=e.row
-                WHERE e.query=? AND e.n>coalesce(a.n,0) LIMIT 10""", (query,)))
-            extra = list(db.execute("""SELECT a.row,a.n-coalesce(e.n,0) FROM actual a
-                LEFT JOIN reference.expected e ON a.query=e.query AND a.row=e.row
-                WHERE a.query=? AND a.n>coalesce(e.n,0) LIMIT 10""", (query,)))
-            order_ok = query != 4 or ordered == json.loads((expected / "q4_ordered.json").read_text())
+            expected_rows, missing, extra = compare_files(expected / normalized.name, normalized, directory)
             passed = not missing and not extra and order_ok
             report["queries"][str(query)] = {"passed": passed, "actual_rows": count,
-                "expected_rows": db.execute("SELECT sum(n) FROM reference.expected WHERE query=?", (query,)).fetchone()[0],
+                "expected_rows": expected_rows,
                 "missing_examples": missing, "unexpected_examples": extra, "order_correct": order_ok}
             report["passed"] &= passed
-        db.commit()
         (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
         print(json.dumps(report, ensure_ascii=False), flush=True)
         if not report["passed"]:
             raise AssertionError("Full-suite output differs from the independent reference; see report.json")
         return report
-    finally:
-        db.close()
 
 
 if __name__ == "__main__":
