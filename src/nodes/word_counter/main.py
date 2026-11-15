@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
 from common.publisher import ReconnectingPublisher
 from common.storage import ClientFiles
@@ -33,6 +34,7 @@ def publisher_of(queue_name):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{WORDS_QUEUE_PREFIX}.{WORD_COUNTER_ID}")
     buckets = [
         ClientFiles(DATA_DIR, f"word_counter_{WORD_COUNTER_ID}_{bucket}") for bucket in range(WORD_COUNTER_BUCKETS)

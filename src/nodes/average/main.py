@@ -4,6 +4,7 @@ import signal
 import sys
 
 from average import Average
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
 from common.publisher import ReconnectingPublisher
 
@@ -19,6 +20,7 @@ def close_all(connections):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     average_id = int(os.environ["AVERAGE_ID"])
     average_amount = int(os.environ["AVERAGE_AMOUNT"])
     comparator_amount = int(os.environ["COMPARATOR_AMOUNT"])

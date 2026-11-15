@@ -6,6 +6,7 @@ COPY nodes/word_counter/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     WORD_COUNTER_ID=0 \
     TEXT_PROCESSOR_AMOUNT=1 \
     JOIN_Q3_AMOUNT=1 \

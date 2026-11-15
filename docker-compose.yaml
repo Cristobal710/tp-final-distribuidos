@@ -648,6 +648,51 @@ services:
       TOP20_ID: 4
       WORD_COUNTER_AMOUNT: 5
 
+  monitor_0:
+    build:
+      context: ./src
+      dockerfile: monitor/Dockerfile
+    container_name: monitor_0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      MONITOR_ID: 0
+      MONITOR_AMOUNT: 3
+      WATCHED_NODES: classifier_0,classifier_1,classifier_2,classifier_3,classifier_4,filter_biography_0,filter_biography_1,filter_biography_2,filter_biography_3,filter_biography_4,image_downloader_0,image_downloader_1,image_downloader_2,image_downloader_3,image_downloader_4,text_processor_0,text_processor_1,text_processor_2,text_processor_3,text_processor_4,average_0,average_1,average_2,average_3,average_4,comparator_0,comparator_1,comparator_2,comparator_3,comparator_4,word_counter_0,word_counter_1,word_counter_2,word_counter_3,word_counter_4,join_q3_0,join_q3_1,join_q3_2,join_q3_3,join_q3_4,top20_0,top20_1,top20_2,top20_3,top20_4
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  monitor_1:
+    build:
+      context: ./src
+      dockerfile: monitor/Dockerfile
+    container_name: monitor_1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      MONITOR_ID: 1
+      MONITOR_AMOUNT: 3
+      WATCHED_NODES: classifier_0,classifier_1,classifier_2,classifier_3,classifier_4,filter_biography_0,filter_biography_1,filter_biography_2,filter_biography_3,filter_biography_4,image_downloader_0,image_downloader_1,image_downloader_2,image_downloader_3,image_downloader_4,text_processor_0,text_processor_1,text_processor_2,text_processor_3,text_processor_4,average_0,average_1,average_2,average_3,average_4,comparator_0,comparator_1,comparator_2,comparator_3,comparator_4,word_counter_0,word_counter_1,word_counter_2,word_counter_3,word_counter_4,join_q3_0,join_q3_1,join_q3_2,join_q3_3,join_q3_4,top20_0,top20_1,top20_2,top20_3,top20_4
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  monitor_2:
+    build:
+      context: ./src
+      dockerfile: monitor/Dockerfile
+    container_name: monitor_2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      MONITOR_ID: 2
+      MONITOR_AMOUNT: 3
+      WATCHED_NODES: classifier_0,classifier_1,classifier_2,classifier_3,classifier_4,filter_biography_0,filter_biography_1,filter_biography_2,filter_biography_3,filter_biography_4,image_downloader_0,image_downloader_1,image_downloader_2,image_downloader_3,image_downloader_4,text_processor_0,text_processor_1,text_processor_2,text_processor_3,text_processor_4,average_0,average_1,average_2,average_3,average_4,comparator_0,comparator_1,comparator_2,comparator_3,comparator_4,word_counter_0,word_counter_1,word_counter_2,word_counter_3,word_counter_4,join_q3_0,join_q3_1,join_q3_2,join_q3_3,join_q3_4,top20_0,top20_1,top20_2,top20_3,top20_4
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
   client_0:
     build:
       context: ./src

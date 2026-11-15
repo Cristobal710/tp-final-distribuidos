@@ -55,6 +55,20 @@ class GenerateComposeTest(unittest.TestCase):
         self.assertEqual(compose.count("IMAGE_CACHE_DIR: ${IMAGE_CACHE_DIR-/cache/q2}"), 3)
         self.assertNotIn("IMAGE_CACHE_MAX_BYTES", compose)
 
+    def test_monitors_watch_every_node_and_can_restart_them(self):
+        compose = render(BASE | {"MONITOR_AMOUNT": 3, "TOP20_AMOUNT": 2})
+        self.assertIn("monitor_2", services_of(compose))
+        self.assertNotIn("monitor_3", services_of(compose))
+        self.assertEqual(compose.count("- /var/run/docker.sock:/var/run/docker.sock"), 3)
+        watched = set(re.findall(r"^      WATCHED_NODES: (.*)$", compose, re.MULTILINE))
+        self.assertEqual(len(watched), 1)
+        nodes = watched.pop().split(",")
+        expected = [name for name in services_of(compose)
+                    if name not in ("rabbitmq", "gateway", "client_0", "expected") and not name.startswith("monitor_")]
+        self.assertEqual(nodes, expected)
+        self.assertIn("top20_1", nodes)
+        self.assertEqual(amounts_of(compose, "MONITOR_AMOUNT"), {"3"})
+
     def test_reads_the_counts_skipping_comments_and_blank_lines(self):
         text = "# cantidades\n\n" + "".join(f"{key}=4\n" for key in COUNT_KEYS)
         self.assertEqual(read_counts(self.write_counts(text)), {key: 4 for key in COUNT_KEYS})

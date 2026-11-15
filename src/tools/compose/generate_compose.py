@@ -90,7 +90,8 @@ NODES = [
     ("join_q3", ["WORD_COUNTER_AMOUNT"], ""),
     ("top20", ["WORD_COUNTER_AMOUNT"], ""),
 ]
-COUNT_KEYS = {f"{name.upper()}_AMOUNT" for name, _, _ in NODES}
+COUNT_KEYS = {f"{name.upper()}_AMOUNT" for name, _, _ in NODES} | {"MONITOR_AMOUNT"}
+DOCKER_SOCKET = "/var/run/docker.sock"
 
 
 def read_counts(path):
@@ -124,16 +125,36 @@ def service(name, index, amounts, extra, counts):
             f"{variables}{extra}\n")
 
 
+def monitor_service(index, counts, watched):
+    return (f"  monitor_{index}:\n"
+            f"    build:\n"
+            f"      context: ./src\n"
+            f"      dockerfile: monitor/Dockerfile\n"
+            f"    container_name: monitor_{index}\n"
+            f"    depends_on:\n"
+            f"      rabbitmq:\n"
+            f"        condition: service_healthy\n"
+            f"    environment:\n"
+            f"      MONITOR_ID: {index}\n"
+            f"      MONITOR_AMOUNT: {counts['MONITOR_AMOUNT']}\n"
+            f"      WATCHED_NODES: {','.join(watched)}\n"
+            f"    volumes:\n"
+            f"      - {DOCKER_SOCKET}:{DOCKER_SOCKET}\n\n")
+
+
 def render(counts):
     header = HEADER
     for key in ("CLASSIFIER_AMOUNT", "IMAGE_DOWNLOADER_AMOUNT", "COMPARATOR_AMOUNT"):
         header = header.replace(f"{{{key}}}", str(counts[key]))
-    services = "".join(
-        service(name, index, amounts, extra, counts)
+    instances = [
+        (name, index, amounts, extra)
         for name, amounts, extra in NODES
         for index in range(counts[f"{name.upper()}_AMOUNT"])
-    )
-    return header + services + FOOTER
+    ]
+    services = "".join(service(name, index, amounts, extra, counts) for name, index, amounts, extra in instances)
+    watched = [f"{name}_{index}" for name, index, _, _ in instances]
+    monitors = "".join(monitor_service(index, counts, watched) for index in range(counts["MONITOR_AMOUNT"]))
+    return header + services + monitors + FOOTER
 
 
 def main():

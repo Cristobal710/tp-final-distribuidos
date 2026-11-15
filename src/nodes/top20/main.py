@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
 from common.publisher import ReconnectingPublisher
 from top20 import Top20
@@ -27,6 +28,7 @@ def open_results_queue(gateway_id):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{TOP20_QUEUE_PREFIX}.{TOP20_ID}")
     top = Top20(TOP20_ID, input_queue, open_results_queue, WORD_COUNTER_AMOUNT, TOP_SIZE)
     signal.signal(signal.SIGTERM, lambda signum, frame: top.stop())

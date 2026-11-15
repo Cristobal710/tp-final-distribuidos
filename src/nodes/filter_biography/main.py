@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareExchangeRabbitMQ, MessageMiddlewareQueueRabbitMQ
 from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
 from common.publisher import ReconnectingPublisher
@@ -20,6 +21,7 @@ def close_all(connections):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     filter_id = int(os.environ["FILTER_BIOGRAPHY_ID"])
     filter_amount = int(os.environ["FILTER_BIOGRAPHY_AMOUNT"])
     classifier_amount = int(os.environ["CLASSIFIER_AMOUNT"])

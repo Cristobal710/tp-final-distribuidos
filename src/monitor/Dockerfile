@@ -1,0 +1,19 @@
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    MONITOR_ID=0 \
+    MONITOR_AMOUNT=1 \
+    WATCHED_NODES= \
+    HEARTBEAT_PORT=9000 \
+    PING_INTERVAL_SECONDS=1 \
+    MISSED_PINGS=3 \
+    RESTART_GRACE_SECONDS=10 \
+    ELECTION_TIMEOUT_SECONDS=2 \
+    DOCKER_SOCKET=/var/run/docker.sock
+
+COPY common ./common
+COPY monitor .
+
+ENTRYPOINT ["python3", "main.py"]

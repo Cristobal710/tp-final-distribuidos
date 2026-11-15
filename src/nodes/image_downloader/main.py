@@ -5,6 +5,7 @@ import signal
 import sys
 from functools import partial
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareExchangeRabbitMQ, MessageMiddlewareQueueRabbitMQ
 from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
 from common.protocol.external import MAX_VALUE_SIZE
@@ -26,6 +27,7 @@ def close_all(connections):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     downloader_id = int(os.environ["IMAGE_DOWNLOADER_ID"])
     downloader_amount = int(os.environ["IMAGE_DOWNLOADER_AMOUNT"])
     filter_amount = int(os.environ["FILTER_BIOGRAPHY_AMOUNT"])

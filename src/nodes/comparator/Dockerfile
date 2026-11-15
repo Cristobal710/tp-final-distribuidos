@@ -6,6 +6,7 @@ COPY nodes/comparator/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     COMPARATOR_ID=0 \
     COMPARATOR_AMOUNT=1 \
     TEXT_PROCESSOR_AMOUNT=1 \

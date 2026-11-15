@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
 from common.publisher import ReconnectingPublisher
 from common.storage import ClientFiles
@@ -30,6 +31,7 @@ def open_results_queue(gateway_id):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{JOIN_Q3_QUEUE_PREFIX}.{JOIN_Q3_ID}")
     join = JoinQ3(
         JOIN_Q3_ID, input_queue, ClientFiles(DATA_DIR, f"join_q3_{JOIN_Q3_ID}"), open_results_queue,

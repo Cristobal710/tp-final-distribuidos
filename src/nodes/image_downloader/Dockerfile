@@ -6,6 +6,7 @@ COPY nodes/image_downloader/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     IMAGE_DOWNLOADER_ID=0 \
     IMAGE_DOWNLOADER_AMOUNT=1 \
     FILTER_BIOGRAPHY_AMOUNT=1 \

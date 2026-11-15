@@ -3,6 +3,7 @@ import os
 import signal
 import sys
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
 from common.protocol.external import MAX_VALUE_SIZE
 from common.publisher import ReconnectingPublisher
@@ -21,6 +22,7 @@ def close_all(connections):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     comparator_id = int(os.environ["COMPARATOR_ID"])
     comparator_amount = int(os.environ["COMPARATOR_AMOUNT"])
     processor_amount = int(os.environ["TEXT_PROCESSOR_AMOUNT"])

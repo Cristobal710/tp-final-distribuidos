@@ -5,6 +5,7 @@ import sys
 
 from nltk.corpus import stopwords
 
+from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareExchangeRabbitMQ, MessageMiddlewareQueueRabbitMQ
 from common.middleware.middleware_rabbitmq import PREFETCH_COUNT
 from common.publisher import ReconnectingPublisher
@@ -47,6 +48,7 @@ def close_all(connections):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("pika").setLevel(logging.WARNING)
+    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
     text_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, TEXT_QUEUE)
     control_input = MessageMiddlewareExchangeRabbitMQ(
         RABBITMQ_HOST, CONTROL_EXCHANGE, [f"{CONTROL_EXCHANGE}.{TEXT_PROCESSOR_ID}"]

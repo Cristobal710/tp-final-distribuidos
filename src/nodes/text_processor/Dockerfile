@@ -7,6 +7,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 RUN python3 -m nltk.downloader -d /usr/share/nltk_data stopwords
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     NLTK_DATA=/usr/share/nltk_data \
     TEXT_PROCESSOR_ID=0 \
     TEXT_PROCESSOR_AMOUNT=1 \

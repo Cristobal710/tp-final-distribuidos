@@ -6,6 +6,7 @@ COPY nodes/average/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     AVERAGE_ID=0 \
     AVERAGE_AMOUNT=1 \
     TEXT_PROCESSOR_AMOUNT=1 \

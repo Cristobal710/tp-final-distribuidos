@@ -6,6 +6,7 @@ COPY nodes/join_q3/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1 \
+    HEARTBEAT_PORT=9000 \
     JOIN_Q3_ID=0 \
     WORD_COUNTER_AMOUNT=1 \
     RABBITMQ_HOST=rabbitmq \
