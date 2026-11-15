@@ -142,6 +142,22 @@ def monitor_service(index, counts, watched):
             f"      - {DOCKER_SOCKET}:{DOCKER_SOCKET}\n\n")
 
 
+def chaos_service(targets):
+    return (f"  chaos_monkey:\n"
+            f"    profiles: [chaos]\n"
+            f"    build:\n"
+            f"      context: ./src\n"
+            f"      dockerfile: chaos_monkey/Dockerfile\n"
+            f"    container_name: chaos_monkey\n"
+            f"    environment:\n"
+            f"      CHAOS_TARGETS: ${{CHAOS_TARGETS:-{','.join(targets)}}}\n"
+            f"      CHAOS_INTERVAL_SECONDS: ${{CHAOS_INTERVAL_SECONDS:-30}}\n"
+            f"      CHAOS_KILLS_PER_ROUND: ${{CHAOS_KILLS_PER_ROUND:-1}}\n"
+            f"      CHAOS_SEED: ${{CHAOS_SEED:-}}\n"
+            f"    volumes:\n"
+            f"      - {DOCKER_SOCKET}:{DOCKER_SOCKET}\n\n")
+
+
 def render(counts):
     header = HEADER
     for key in ("CLASSIFIER_AMOUNT", "IMAGE_DOWNLOADER_AMOUNT", "COMPARATOR_AMOUNT"):
@@ -153,8 +169,9 @@ def render(counts):
     ]
     services = "".join(service(name, index, amounts, extra, counts) for name, index, amounts, extra in instances)
     watched = [f"{name}_{index}" for name, index, _, _ in instances]
+    monitor_names = [f"monitor_{index}" for index in range(counts["MONITOR_AMOUNT"])]
     monitors = "".join(monitor_service(index, counts, watched) for index in range(counts["MONITOR_AMOUNT"]))
-    return header + services + monitors + FOOTER
+    return header + services + monitors + chaos_service(watched + monitor_names) + FOOTER
 
 
 def main():

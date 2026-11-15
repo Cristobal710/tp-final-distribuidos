@@ -10,9 +10,18 @@ up: compose
 .PHONY: up
 
 down:
-	docker compose -f docker-compose.yaml stop -t 5
-	docker compose -f docker-compose.yaml down
+	docker compose -f docker-compose.yaml --profile chaos stop -t 5
+	docker compose -f docker-compose.yaml --profile chaos down
 .PHONY: down
+
+chaos: compose
+	docker compose -f docker-compose.yaml --profile chaos up --build --detach chaos_monkey
+	docker logs --follow chaos_monkey
+.PHONY: chaos
+
+chaos-stop:
+	docker compose -f docker-compose.yaml --profile chaos rm --stop --force chaos_monkey
+.PHONY: chaos-stop
 
 logs:
 	docker compose -f docker-compose.yaml logs --follow

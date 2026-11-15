@@ -41,7 +41,7 @@ class GenerateComposeTest(unittest.TestCase):
         compose = render(counts)
         for key in COUNT_KEYS:
             self.assertLessEqual(amounts_of(compose, key), {"3"})
-        self.assertEqual(len(services_of(compose)), 2 + 3 * len(COUNT_KEYS) + 2)
+        self.assertEqual(len(services_of(compose)), 2 + 3 * len(COUNT_KEYS) + 3)
 
     def test_lowering_a_count_removes_the_instances_with_the_highest_id(self):
         services = services_of(render(BASE | {"WORD_COUNTER_AMOUNT": 1}))
@@ -59,15 +59,27 @@ class GenerateComposeTest(unittest.TestCase):
         compose = render(BASE | {"MONITOR_AMOUNT": 3, "TOP20_AMOUNT": 2})
         self.assertIn("monitor_2", services_of(compose))
         self.assertNotIn("monitor_3", services_of(compose))
-        self.assertEqual(compose.count("- /var/run/docker.sock:/var/run/docker.sock"), 3)
+        self.assertEqual(compose.count("- /var/run/docker.sock:/var/run/docker.sock"), 3 + 1)
         watched = set(re.findall(r"^      WATCHED_NODES: (.*)$", compose, re.MULTILINE))
         self.assertEqual(len(watched), 1)
         nodes = watched.pop().split(",")
         expected = [name for name in services_of(compose)
-                    if name not in ("rabbitmq", "gateway", "client_0", "expected") and not name.startswith("monitor_")]
+                    if name not in ("rabbitmq", "gateway", "client_0", "expected", "chaos_monkey")
+                    and not name.startswith("monitor_")]
         self.assertEqual(nodes, expected)
         self.assertIn("top20_1", nodes)
         self.assertEqual(amounts_of(compose, "MONITOR_AMOUNT"), {"3"})
+
+    def test_the_chaos_monkey_only_runs_when_asked_and_never_kills_the_gateway_rabbitmq_or_clients(self):
+        compose = render(BASE | {"MONITOR_AMOUNT": 3})
+        block = compose.split("  chaos_monkey:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("profiles: [chaos]", block)
+        self.assertIn("- /var/run/docker.sock:/var/run/docker.sock", block)
+        targets = re.search(r"CHAOS_TARGETS: \$\{CHAOS_TARGETS:-(.*)\}", block).group(1).split(",")
+        nodes = re.search(r"^      WATCHED_NODES: (.*)$", compose, re.MULTILINE).group(1).split(",")
+        self.assertEqual(targets, nodes + ["monitor_0", "monitor_1", "monitor_2"])
+        for untouchable in ("gateway", "rabbitmq", "client_0", "expected", "chaos_monkey"):
+            self.assertNotIn(untouchable, targets)
 
     def test_reads_the_counts_skipping_comments_and_blank_lines(self):
         text = "# cantidades\n\n" + "".join(f"{key}=4\n" for key in COUNT_KEYS)
