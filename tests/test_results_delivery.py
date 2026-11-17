@@ -81,6 +81,49 @@ class ResultsDeliveryTest(unittest.TestCase):
         self.receiver.wait(2)
         self.assertEqual(sum(self.receiver.rows.values()), 0)
 
+    def test_a_repeated_result_is_delivered_and_counted_once(self):
+        self.receiver.start()
+        try:
+            self.results.finish_input("client")
+            self.deliver(internal.encode_results("client", 0, 1, [["url", 1]], "b0:q1"))
+            self.deliver(internal.encode_results("client", 0, 1, [["url", 1]], "b0:q1"))
+            self.eof(1, "classifier_0", 1, 1, 1)
+            self.assertNotIn(1, self.session.finished_queries)
+            self.eof(1, "classifier_1", 0, 1, 0)
+            self.assertIn(1, self.session.finished_queries)
+            self.deliver(internal.encode_results("client", 0, 1, [["url", 1]], "b0:q1"))
+            for query, origins in ((2, 2), (3, 1), (4, 1), (5, 2)):
+                for origin in range(origins):
+                    self.eof(query, str(origin))
+            self.assertTrue(self.session.done.is_set())
+        finally:
+            self.gateway.close()
+        self.receiver.wait(2)
+        self.failed.assert_not_called()
+        self.assertEqual(self.receiver.rows, {1: 1, 2: 0, 3: 0, 4: 0, 5: 0})
+
+    def test_the_same_id_in_another_query_or_without_id_is_not_a_repeat(self):
+        self.receiver.start()
+        try:
+            self.results.finish_input("client")
+            self.deliver(internal.encode_results("client", 0, 3, [["shared"]], "x"))
+            self.deliver(internal.encode_results("client", 0, 4, [["shared", 2]], "x"))
+            self.deliver(internal.encode_results("client", 0, 1, [["a", 1]]))
+            self.deliver(internal.encode_results("client", 0, 1, [["a", 1]]))
+            self.eof(1, "classifier_0", 2, 2, 2)
+            self.eof(1, "classifier_1", 0, 2, 0)
+            self.eof(3, "join", 1, 1, 1)
+            self.eof(4, "top", 1, 1, 1)
+            for query, origins in ((2, 2), (5, 2)):
+                for origin in range(origins):
+                    self.eof(query, str(origin))
+            self.assertTrue(self.session.done.is_set())
+        finally:
+            self.gateway.close()
+        self.receiver.wait(2)
+        self.failed.assert_not_called()
+        self.assertEqual(self.receiver.rows, {1: 2, 2: 0, 3: 1, 4: 1, 5: 0})
+
     def test_unknown_session_is_not_delivered_to_another_client(self):
         self.deliver(internal.encode_results("other", 0, 1, [["wrong", 123]]))
         self.client.settimeout(0.02)

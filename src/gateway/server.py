@@ -85,7 +85,8 @@ class Server:
                 while True:
                     msg_type, value = external.receive_message(client_socket)
                     if msg_type == external.MsgType.ARTICLES:
-                        self._publish_articles(classification_queue, client_id, articles.decode_batch(value))
+                        self._publish_articles(classification_queue, client_id, f"b{batches}",
+                                               articles.decode_batch(value))
                         batches += 1
                     elif msg_type == external.MsgType.END_OF_DATA:
                         if self._results is not None:
@@ -111,8 +112,8 @@ class Server:
                     self._results.unregister(client_id)
 
     # Publica un batch de articulos del cliente en la cola de clasificacion.
-    def _publish_articles(self, classification_queue, client_id, article_list):
-        classification_queue.send(internal.encode_articles(client_id, self._gateway_id, article_list))
+    def _publish_articles(self, classification_queue, client_id, msg_id, article_list):
+        classification_queue.send(internal.encode_articles(client_id, self._gateway_id, article_list, msg_id))
         logging.info(f"Cliente {client_id}: {len(article_list)} artículos publicados en clasificacion")
 
     # Publica el fin de datos del cliente en la cola de clasificacion, con la cantidad de batches que publico.

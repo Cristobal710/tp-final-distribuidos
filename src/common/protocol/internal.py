@@ -114,14 +114,17 @@ class Q5Result(NamedTuple):
 
 
 # Arma el mensaje con un batch de articulos de un cliente para publicar en las colas internas.
-def encode_articles(client_id, gateway_id, article_list):
-    return external.serialize_fields({
+def encode_articles(client_id, gateway_id, article_list, msg_id=None):
+    fields = {
         "type": external.serialize(MsgType.ARTICLES),
         "client_id": external.serialize(client_id),
         "gateway_id": external.serialize(gateway_id),
-        "columns": external.serialize(list(articles.Article._fields)),
-        "rows": external.serialize_list([articles.encode_row(article) for article in article_list]),
-    })
+    }
+    if msg_id is not None:
+        fields["msg_id"] = external.serialize(msg_id)
+    fields["columns"] = external.serialize(list(articles.Article._fields))
+    fields["rows"] = external.serialize_list([articles.encode_row(article) for article in article_list])
+    return external.serialize_fields(fields)
 
 
 # Arma un mensaje con un batch de filas de un tipo, sin nombres de columnas porque el tipo ya fija el orden.
@@ -163,8 +166,11 @@ def encode_average(client_id, gateway_id, average):
 
 
 # Arma el mensaje con un batch de resultados de una consulta.
-def encode_results(client_id, gateway_id, query, rows):
-    return _encode_rows(MsgType.RESULTS, client_id, gateway_id, rows, {"query": external.serialize(query)})
+def encode_results(client_id, gateway_id, query, rows, msg_id=None):
+    extra_fields = {"query": external.serialize(query)}
+    if msg_id is not None:
+        extra_fields["msg_id"] = external.serialize(msg_id)
+    return _encode_rows(MsgType.RESULTS, client_id, gateway_id, rows, extra_fields)
 
 
 # Arma un mensaje de un tipo con filas ya serializadas, por ejemplo las que junto un BatchBuilder.
@@ -250,6 +256,8 @@ def decode(message):
     missing = [field for field in REQUIRED_FIELDS.get(msg_type, ()) if field not in value]
     if missing:
         raise external.ProtocolError(f"Al mensaje le faltan campos: {', '.join(missing)}")
+    if "msg_id" in value and (not isinstance(value["msg_id"], str) or not value["msg_id"]):
+        raise external.ProtocolError("El msg_id tiene que ser un string no vacio")
     if msg_type == MsgType.ARTICLES:
         value["articles"] = articles.decode_batch(value)
     elif msg_type == MsgType.TEXTS:

@@ -13,6 +13,7 @@ class _Session:
     lock: object = field(default_factory=threading.Lock)
     done: object = field(default_factory=threading.Event)
     finished_queries: set = field(default_factory=set)
+    delivered_ids: set = field(default_factory=set)
     input_finished: bool = False
 
 # Se encarga de entregar los resultados a los clientes
@@ -106,12 +107,19 @@ class Results:
             return
         try:
             with session.lock:
+                if kind == internal.MsgType.RESULTS and self._already_delivered(session, query, value):
+                    logging.info("Cliente %s: Q%s resultado repetido %s descartado", client_id, query,
+                                 value["msg_id"])
+                    ack()
+                    return
                 if query in session.finished_queries:
                     raise external.ProtocolError(f"Q{query} recibio datos despues de terminar")
                 tracker = session.trackers[query]
                 if kind == internal.MsgType.RESULTS:
                     external.send_message(session.socket, external.MsgType.RESULTS,
                                           external.serialize({"query": query, "rows": value["rows"]}))
+                    if "msg_id" in value:
+                        session.delivered_ids.add((query, value["msg_id"]))
                     tracker.add_message(client_id)
                 elif kind == internal.MsgType.EOF:
                     tracker.add_eof(value)
@@ -130,6 +138,9 @@ class Results:
                 pass
             session.done.set()
         ack()
+
+    def _already_delivered(self, session, query, value):
+        return "msg_id" in value and (query, value["msg_id"]) in session.delivered_ids
 
     def _maybe_finish(self, session):
         if session.input_finished and len(session.finished_queries) == 5 and not session.done.is_set():

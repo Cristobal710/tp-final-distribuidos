@@ -48,6 +48,22 @@ class InternalProtocolTest(unittest.TestCase):
         self.assertEqual((value["processed"], value["total"], value["sent"]), (5, 5, 5))
         self.assertNotIn("query", value)
 
+    def test_articles_carry_their_msg_id(self):
+        _, value = internal.decode(internal.encode_articles("c1", 3, [article(1)], "b7"))
+        self.assertEqual(value["msg_id"], "b7")
+        self.assertEqual(value["articles"], [article(1)])
+        self.assertNotIn("msg_id", internal.decode(internal.encode_articles("c1", 3, [article(1)]))[1])
+
+    def test_results_carry_their_msg_id(self):
+        _, value = internal.decode(internal.encode_results("c1", 3, 1, [["url", 1]], "b7:q1"))
+        self.assertEqual((value["query"], value["msg_id"]), (1, "b7:q1"))
+
+    def test_rejects_a_msg_id_that_is_not_a_string(self):
+        for msg_id in ('""', "7", "null", "[1]"):
+            message = b'{"type":5,"client_id":"c1","gateway_id":0,"query":1,"msg_id":' + msg_id.encode() + b',"rows":[]}'
+            with self.assertRaises(external.ProtocolError):
+                internal.decode(message)
+
     def test_invalid_messages(self):
         for message in (b"[1, 2]", b'{"type": 99, "client_id": "c1"}', b'{"type": 1}'):
             with self.assertRaises(external.ProtocolError):
@@ -109,6 +125,21 @@ class GatewayTest(unittest.TestCase):
         eof = decoded[-1][1]
         self.assertEqual((eof["origin"], eof["gateway_id"]), ("gateway_7", 7))
         self.assertEqual((eof["processed"], eof["total"], eof["sent"]), (5, 5, 5))
+
+    def test_numbers_the_batches_of_each_client_from_zero(self):
+        with self.connect() as a, self.connect() as b:
+            self.send_batches(a, [article(i) for i in range(6)])
+            self.send_batches(b, [article(i) for i in range(4)])
+            external.send_message(a, external.MsgType.END_OF_DATA)
+            external.send_message(b, external.MsgType.END_OF_DATA)
+            self.wait_for(lambda: len(self.queues) == 2 and all(q.closed for q in self.queues))
+
+        ids = sorted([internal.decode(m)[1].get("msg_id") for m in q.messages[:-1]] for q in self.queues)
+        self.assertEqual(ids, [["b0", "b1"], ["b0", "b1", "b2"]])
+        for queue in self.queues:
+            eof = internal.decode(queue.messages[-1])[1]
+            self.assertNotIn("msg_id", eof)
+            self.assertEqual(eof["total"], len(queue.messages) - 1)
 
     def test_drops_the_columns_it_does_not_need(self):
         columns = ["references"] + list(Article._fields)
