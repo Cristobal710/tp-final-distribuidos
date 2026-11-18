@@ -16,6 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
     PUBLISHER_IDLE_SECONDS=30
 
 COPY common ./common
+COPY q3q4 ./q3q4
 COPY nodes/top20 .
 
 ENTRYPOINT ["python3", "main.py"]

@@ -1,13 +1,10 @@
-import logging
 import os
-import signal
 import sys
 
-from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
-from common.publisher import ReconnectingPublisher
 from common.storage import ClientFiles
 from join_q3 import JoinQ3
+from q3q4.bootstrap import publisher_of, run_stage, start_node
 
 JOIN_Q3_ID = int(os.environ["JOIN_Q3_ID"])
 WORD_COUNTER_AMOUNT = int(os.environ["WORD_COUNTER_AMOUNT"])
@@ -20,33 +17,16 @@ MAX_BATCH_BYTES = int(os.environ["MAX_BATCH_BYTES"])
 IDLE_SECONDS = float(os.environ["PUBLISHER_IDLE_SECONDS"])
 
 
-# Arma el publicador de la cola de resultados de un gateway.
-def open_results_queue(gateway_id):
-    return ReconnectingPublisher(
-        lambda: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{RESULTS_QUEUE_PREFIX}.{gateway_id}"), IDLE_SECONDS
-    )
-
-
 # Levanta el Join Q3 y lo apaga limpio ante SIGTERM.
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logging.getLogger("pika").setLevel(logging.WARNING)
-    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
+    start_node()
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{JOIN_Q3_QUEUE_PREFIX}.{JOIN_Q3_ID}")
     join = JoinQ3(
-        JOIN_Q3_ID, input_queue, ClientFiles(DATA_DIR, f"join_q3_{JOIN_Q3_ID}"), open_results_queue,
+        JOIN_Q3_ID, input_queue, ClientFiles(DATA_DIR, f"join_q3_{JOIN_Q3_ID}"),
+        lambda gateway_id: publisher_of(RABBITMQ_HOST, f"{RESULTS_QUEUE_PREFIX}.{gateway_id}", IDLE_SECONDS),
         WORD_COUNTER_AMOUNT, MAX_BATCH_ROWS, MAX_BATCH_BYTES,
     )
-    signal.signal(signal.SIGTERM, lambda signum, frame: join.stop())
-    try:
-        join.run()
-    finally:
-        join.close()
-        try:
-            input_queue.close()
-        except Exception as e:
-            logging.error(f"Error cerrando una conexión: {e}")
-    return 0
+    return run_stage(join, input_queue)
 
 
 if __name__ == "__main__":

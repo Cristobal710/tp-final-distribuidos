@@ -114,17 +114,19 @@ src/
       Dockerfile
       requirements.txt
     word_counter/
-      main.py
-      word_counter.py     guarda en disco las palabras de su shard en varios archivos y, al terminar un cliente, los procesa de a uno y manda las compartidas (Q3) y su top (Q4)
+      main.py             configuracion, SIGTERM y arranque
+      word_counter.py     guarda las palabras de su shard y, al terminar un cliente, manda las compartidas (Q3) y su top (Q4)
+      word_buckets.py     los archivos donde guarda las palabras de un cliente, uno por bucket de hash, y su lectura de a uno
+      shard_summary.py    suma lo contado de cada archivo y arma las palabras compartidas y el top local
       Dockerfile
       requirements.txt
     join_q3/
-      main.py
+      main.py             configuracion, SIGTERM y arranque
       join_q3.py          junta las palabras compartidas de todos los contadores y publica Q3
       Dockerfile
       requirements.txt
     top20/
-      main.py
+      main.py             configuracion, SIGTERM y arranque
       top20.py            junta los tops locales y publica el top 20 de Q4
       Dockerfile
       requirements.txt
@@ -138,6 +140,12 @@ src/
       comparator.py       guarda candidatos en disco y publica los que superan el promedio de Q5
       Dockerfile
       requirements.txt
+  q3q4/                   lo que comparten solo los nodos de Q3 y Q4 (word_counter, join_q3 y top20); lo copian sus Dockerfiles
+    stage.py              recorrido de un mensaje: lo que llega de la etapa anterior, sus EOF y el cierre de cada cliente
+    bootstrap.py          arranque comun: log, heartbeat, publicadores y SIGTERM
+    row_sender.py         manda filas partidas en mensajes y cierra con el EOF que cuenta lo enviado
+    results_publisher.py  manda resultados de una consulta al gateway de cada cliente
+    ranking.py            la regla de orden del top de Q4 (mas articulos y, si empatan, orden alfabetico)
   common/                 lo que comparten todos los nodos
     batching/
       batch_builder.py    junta items en batches con tope de cantidad y de bytes

@@ -1,11 +1,8 @@
-import logging
 import os
-import signal
 import sys
 
-from common.heartbeat import HeartbeatServer
 from common.middleware import MessageMiddlewareQueueRabbitMQ
-from common.publisher import ReconnectingPublisher
+from q3q4.bootstrap import publisher_of, run_stage, start_node
 from top20 import Top20
 
 TOP20_ID = int(os.environ["TOP20_ID"])
@@ -17,30 +14,16 @@ TOP_SIZE = int(os.environ["TOP_SIZE"])
 IDLE_SECONDS = float(os.environ["PUBLISHER_IDLE_SECONDS"])
 
 
-# Arma el publicador de la cola de resultados de un gateway.
-def open_results_queue(gateway_id):
-    return ReconnectingPublisher(
-        lambda: MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{RESULTS_QUEUE_PREFIX}.{gateway_id}"), IDLE_SECONDS
-    )
-
-
 # Levanta el Top 20 final y lo apaga limpio ante SIGTERM.
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logging.getLogger("pika").setLevel(logging.WARNING)
-    HeartbeatServer(int(os.environ["HEARTBEAT_PORT"])).start()
+    start_node()
     input_queue = MessageMiddlewareQueueRabbitMQ(RABBITMQ_HOST, f"{TOP20_QUEUE_PREFIX}.{TOP20_ID}")
-    top = Top20(TOP20_ID, input_queue, open_results_queue, WORD_COUNTER_AMOUNT, TOP_SIZE)
-    signal.signal(signal.SIGTERM, lambda signum, frame: top.stop())
-    try:
-        top.run()
-    finally:
-        top.close()
-        try:
-            input_queue.close()
-        except Exception as e:
-            logging.error(f"Error cerrando una conexión: {e}")
-    return 0
+    top = Top20(
+        TOP20_ID, input_queue,
+        lambda gateway_id: publisher_of(RABBITMQ_HOST, f"{RESULTS_QUEUE_PREFIX}.{gateway_id}", IDLE_SECONDS),
+        WORD_COUNTER_AMOUNT, TOP_SIZE,
+    )
+    return run_stage(top, input_queue)
 
 
 if __name__ == "__main__":
